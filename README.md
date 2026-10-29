@@ -2,7 +2,8 @@
 
 Digital wallet REST API with a double-entry ledger, built as a modular monolith with clean architecture.
 
-**Stack:** Java 21, Spring Boot 4.1, PostgreSQL 17, Flyway, Spring Modulith, ArchUnit, Testcontainers, Docker.
+**Stack:** Java 21, Spring Boot 4.1, Spring Security (OAuth2 resource server, JWT RS256), PostgreSQL 17, Flyway,
+Spring Modulith, ArchUnit, Testcontainers, Docker.
 
 ## Architecture
 
@@ -68,6 +69,32 @@ Add this VM option to the run configuration, pointing to any existing folder wit
 -Djdk.net.unixdomain.tmpdir=C:\tmp
 ```
 
+## Authentication
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/auth/register` | public | Create an account (`201`, `409` if the email exists) |
+| POST | `/api/v1/auth/login` | public | Get an access token (15 min) and a refresh token (7 days) |
+| POST | `/api/v1/auth/refresh` | public | Swap a refresh token for a new pair; the old one stops working |
+| POST | `/api/v1/auth/logout` | public | Revoke the refresh token and every token rotated from it |
+| GET | `/api/v1/users/me` | bearer | Profile of the authenticated user |
+
+Every other endpoint requires `Authorization: Bearer <accessToken>`. Five failed logins in a row lock the account
+for 15 minutes. Design and trade-offs: [ADR 0002](docs/adr/0002-jwt-access-and-rotating-refresh-tokens.md).
+
+### Signing keys
+
+The dev and test profiles generate a temporary RSA key pair at startup, so restarting the app invalidates all
+tokens. Production requires a fixed pair:
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-private.pem
+openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem
+```
+
+Mount both files as secrets and point `JWT_PRIVATE_KEY_LOCATION` and `JWT_PUBLIC_KEY_LOCATION` at them
+(e.g. `file:/run/secrets/jwt-private.pem`). `*.pem` files are git-ignored.
+
 ## Tests
 
 ```bash
@@ -98,7 +125,7 @@ Send an `X-Correlation-Id` header to trace a request across logs; one is generat
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Project skeleton, modules, architecture tests, Docker, CI | Done |
-| 1 | Identity: registration, login, JWT (RS256), refresh token rotation, lockout | Pending |
+| 1 | Identity: registration, login, JWT (RS256), refresh token rotation, lockout | Done |
 | 2 | Accounts and ledger: wallets, system accounts, journal entries, deposits | Pending |
 | 3 | Transfers: ordered pessimistic locking, idempotency keys, concurrency tests | Pending |
 | 4 | Withdrawals, daily limits, account freeze, audit log, admin endpoints | Pending |
