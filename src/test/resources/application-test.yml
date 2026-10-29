@@ -1,0 +1,6 @@
+# Datasource comes from Testcontainers via @ServiceConnection
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
