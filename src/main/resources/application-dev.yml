@@ -1,0 +1,16 @@
+# Local development: Flyway migrates with the schema owner, the app connects with the restricted user
+spring:
+  flyway:
+    user: ${DB_OWNER_USER:wallet_owner}
+    password: ${DB_OWNER_PASSWORD:wallet_owner_dev}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+management:
+  endpoint:
+    health:
+      show-details: always
