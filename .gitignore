@@ -8,6 +8,7 @@ target/
 
 # Local secrets
 .env
+*.pem
 
 # OS
 .DS_Store

@@ -18,3 +18,12 @@ logging:
   structured:
     format:
       console: ecs
+
+wallet:
+  identity:
+    jwt:
+      # e.g. file:/run/secrets/jwt-private.pem (PKCS#8) and file:/run/secrets/jwt-public.pem (X.509)
+      private-key-location: ${JWT_PRIVATE_KEY_LOCATION:}
+      public-key-location: ${JWT_PUBLIC_KEY_LOCATION:}
+      # Only for running the production image locally; real deployments must provide the keys
+      generate-keys-if-missing: ${JWT_GENERATE_KEYS_IF_MISSING:false}

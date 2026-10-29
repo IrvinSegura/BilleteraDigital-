@@ -44,3 +44,16 @@ management:
 logging:
   pattern:
     correlation: "[%X{correlationId:-}] "
+
+wallet:
+  identity:
+    jwt:
+      issuer: digital-wallet
+      access-token-ttl: 15m
+      generate-keys-if-missing: false
+    refresh-token-ttl: 7d
+    lockout:
+      max-failed-attempts: 5
+      duration: 15m
+    password:
+      hash-strength: 12
