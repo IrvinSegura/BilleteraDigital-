@@ -14,3 +14,9 @@ management:
   endpoint:
     health:
       show-details: always
+
+wallet:
+  identity:
+    jwt:
+      # Temporary key pair per run: restarting the app logs everyone out
+      generate-keys-if-missing: true

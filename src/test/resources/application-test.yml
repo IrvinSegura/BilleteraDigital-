@@ -4,3 +4,11 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+
+wallet:
+  identity:
+    jwt:
+      generate-keys-if-missing: true
+    password:
+      # Minimum cost keeps tests fast; production uses 12
+      hash-strength: 4
