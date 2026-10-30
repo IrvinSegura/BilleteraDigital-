@@ -62,6 +62,20 @@ public final class ApiClient {
                         {"amount": %s}""".formatted(amount)));
     }
 
+    public ResultActions withdraw(TestUser user, String walletId, String amount) throws Exception {
+        return withdraw(user, walletId, amount, newKey());
+    }
+
+    public ResultActions withdraw(TestUser user, String walletId, String amount, String idempotencyKey)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/wallets/" + walletId + "/withdrawals")
+                .header("Authorization", user.bearer())
+                .header("Idempotency-Key", idempotencyKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"amount": %s}""".formatted(amount)));
+    }
+
     public ResultActions transfer(TestUser user, String sourceWalletId, String recipientEmail, String amount,
             String idempotencyKey) throws Exception {
         return mockMvc.perform(post("/api/v1/transfers")
