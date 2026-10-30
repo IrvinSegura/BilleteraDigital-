@@ -46,7 +46,7 @@ public class WalletAdministrationService {
     }
 
     private AdminWalletView changeStatus(UUID walletId, UUID adminId, String reason, boolean freeze) {
-        // Locked like outgoing operations: a freeze waits for in-flight ones and blocks the ones after it
+        // Exclusive lock: waits for operations in flight, outgoing and incoming, and blocks the ones after it
         Wallet wallet = walletRepository.findByIdForUpdate(walletId).orElseThrow(WalletNotFoundException::new);
         boolean changed = freeze ? wallet.freeze() : wallet.unfreeze();
         if (changed) {

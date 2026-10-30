@@ -35,12 +35,22 @@ class WalletPersistenceAdapter implements WalletRepository {
 
     @Override
     public Optional<Wallet> findByIdForUpdate(UUID id) {
+        return findLocked(id, LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    // PESSIMISTIC_READ is SELECT ... FOR SHARE in PostgreSQL
+    @Override
+    public Optional<Wallet> findByIdForShare(UUID id) {
+        return findLocked(id, LockModeType.PESSIMISTIC_READ);
+    }
+
+    private Optional<Wallet> findLocked(UUID id, LockModeType lockMode) {
         WalletEntity entity = entityManager.find(WalletEntity.class, id);
         if (entity == null) {
             return Optional.empty();
         }
         // Refreshing under the lock reloads the row, even if an older copy was read earlier in this transaction
-        entityManager.refresh(entity, LockModeType.PESSIMISTIC_WRITE);
+        entityManager.refresh(entity, lockMode);
         return Optional.of(entity.toDomain());
     }
 

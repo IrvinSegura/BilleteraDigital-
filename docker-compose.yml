@@ -1,4 +1,5 @@
-# `docker compose up -d` starts only the database for running the app from the IDE.
+# `docker compose up -d` starts the database and Mailpit (emails at http://localhost:8025) for running the app from
+# the IDE.
 # `docker compose --profile app up -d --build` also builds and runs the application container.
 # `docker compose --profile observability up -d` adds Prometheus, Tempo and Grafana (http://localhost:3000).
 services:
@@ -22,12 +23,21 @@ services:
       timeout: 3s
       retries: 10
 
+  # Catches every email the app sends; nothing reaches real inboxes
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   app:
     profiles: [app]
     build: .
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:postgresql://postgres:5432/wallet
@@ -39,6 +49,10 @@ services:
       JWT_GENERATE_KEYS_IF_MISSING: "true"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_SMTP_AUTH: "false"
+      EMAIL_FROM: Digital Wallet <no-reply@wallet.local>
       # Traces go to Tempo when the observability profile is running too
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:

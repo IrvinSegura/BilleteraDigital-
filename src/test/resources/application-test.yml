@@ -1,4 +1,9 @@
 # Datasource comes from Testcontainers via @ServiceConnection
+spring:
+  mail:
+    # Lets mail auto-configuration run; TestcontainersConfiguration then points host and port at Mailpit
+    host: localhost
+
 springdoc:
   api-docs:
     enabled: false
@@ -15,6 +20,11 @@ wallet:
     admin:
       email: admin@wallet.test
       password: admin-test-password
+  # Emails go to the Mailpit container from TestcontainersConfiguration
+  notifications:
+    email:
+      delivery: smtp
+      from: Digital Wallet <no-reply@wallet.test>
   accounts:
     # Low limits so tests can reach them without huge deposits
     daily-outgoing-limit:

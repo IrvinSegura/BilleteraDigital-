@@ -36,3 +36,11 @@ The audit trail must never miss an action, but writing it must never slow down o
 - The same outbox will feed notifications in phase 6, and could later feed a message broker.
 - The usage table keeps one row per wallet and day; old rows can be purged by the phase 5 jobs.
 - Limits are global per currency; per-user limits (e.g. by verification level) would need a new table.
+
+## Update (2026-10-30)
+
+Locking only the debited wallet let a freeze race with money coming in: a deposit or transfer could read the
+destination as active, then credit it right after the freeze committed. Incoming money now takes a shared lock
+(`SELECT ... FOR SHARE`) on the destination wallet, which a freeze has to wait for and which waits for a freeze.
+Transfers lock both wallets in id order, like the ledger does with accounts, so opposite transfers still cannot
+deadlock. Incoming operations do not block each other.
