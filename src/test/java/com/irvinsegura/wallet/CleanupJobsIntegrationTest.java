@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.irvinsegura.wallet.accounts.application.OutgoingUsageCleanupService;
 import com.irvinsegura.wallet.identity.application.RefreshTokenCleanupService;
+import com.irvinsegura.wallet.notifications.application.NotificationCleanupService;
 import com.irvinsegura.wallet.transfers.application.IdempotencyKeyCleanupService;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -39,6 +40,9 @@ class CleanupJobsIntegrationTest {
 
     @Autowired
     private RefreshTokenCleanupService refreshTokenCleanup;
+
+    @Autowired
+    private NotificationCleanupService notificationCleanup;
 
     @Test
     void idempotencyKeysAreDeletedAfterTheRetentionPeriod() {
@@ -85,6 +89,25 @@ class CleanupJobsIntegrationTest {
         assertThat(jdbcTemplate.queryForList(
                 "SELECT family_id FROM refresh_tokens WHERE user_id = ?", UUID.class, userId))
                 .containsExactly(liveFamily, liveFamily);
+    }
+
+    @Test
+    void notificationsAreDeletedAfterTheRetentionPeriodReadOrNot() {
+        UUID userId = UUID.randomUUID();
+        insertNotification(userId, "old", Instant.now().minus(Duration.ofDays(91)));
+        insertNotification(userId, "recent", Instant.now().minus(Duration.ofDays(89)));
+
+        assertThat(notificationCleanup.deleteOlderThan(Duration.ofDays(90))).isGreaterThanOrEqualTo(1);
+
+        assertThat(jdbcTemplate.queryForList("SELECT title FROM notifications WHERE user_id = ?", String.class, userId))
+                .containsExactly("recent");
+    }
+
+    private void insertNotification(UUID userId, String title, Instant createdAt) {
+        jdbcTemplate.update("""
+                        INSERT INTO notifications (id, user_id, type, title, body, created_at)
+                        VALUES (?, ?, 'WELCOME', ?, 'body', ?)""",
+                UUID.randomUUID(), userId, title, Timestamp.from(createdAt));
     }
 
     private void insertIdempotencyKey(UUID userId, String key, Instant createdAt) {

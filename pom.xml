@@ -85,6 +85,12 @@
             <artifactId>spring-modulith-starter-jdbc</artifactId>
         </dependency>
 
+        <!-- Email notifications over SMTP -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <!-- Operations -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

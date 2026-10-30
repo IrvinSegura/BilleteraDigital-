@@ -7,6 +7,15 @@ spring:
   flyway:
     user: ${DB_OWNER_USER}
     password: ${DB_OWNER_PASSWORD}
+  # SMTP relay of a transactional email provider; STARTTLS is used whenever the server offers it
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      "[mail.smtp.auth]": ${MAIL_SMTP_AUTH:true}
+      "[mail.smtp.starttls.enable]": true
 
 springdoc:
   api-docs:
@@ -37,3 +46,8 @@ wallet:
       public-key-location: ${JWT_PUBLIC_KEY_LOCATION:}
       # Only for running the production image locally; real deployments must provide the keys
       generate-keys-if-missing: ${JWT_GENERATE_KEYS_IF_MISSING:false}
+  notifications:
+    email:
+      # smtp needs MAIL_HOST; log turns email off (e.g. a demo deployment without a mail server)
+      delivery: ${EMAIL_DELIVERY:smtp}
+      from: ${EMAIL_FROM}

@@ -3,6 +3,10 @@ spring:
   flyway:
     user: ${DB_OWNER_USER:wallet_owner}
     password: ${DB_OWNER_PASSWORD:wallet_owner_dev}
+  # Mailpit from `docker compose up -d`; read the emails at http://localhost:8025
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
 
 springdoc:
   api-docs:
@@ -28,6 +32,9 @@ management:
           endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
 
 wallet:
+  notifications:
+    email:
+      delivery: smtp
   identity:
     jwt:
       # Temporary key pair per run: restarting the app logs everyone out
