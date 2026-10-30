@@ -49,8 +49,8 @@ public class DepositService {
     }
 
     private DepositReceipt execute(UUID depositId, DepositCommand command) {
-        WalletInfo wallet = wallets.getOwnedWallet(command.walletId(), command.userId());
-        wallet.ensureActive();
+        // Locks the wallet so a freeze cannot commit while the money is coming in
+        WalletInfo wallet = wallets.acceptIncoming(command.walletId(), command.userId());
         Money amount = Money.of(command.amount(), wallet.currency().getCurrencyCode());
         if (amount.isZero()) {
             throw new InvalidAmountException("Amount must be greater than zero");

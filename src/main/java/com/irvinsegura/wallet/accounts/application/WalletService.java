@@ -100,9 +100,40 @@ public class WalletService implements Wallets {
         return toInfo(wallet);
     }
 
+    @Override
+    @Transactional
+    public WalletInfo acceptIncoming(UUID walletId, UUID ownerId) {
+        Wallet wallet = lockForIncoming(walletId);
+        if (!wallet.isOwnedBy(ownerId)) {
+            throw new WalletNotFoundException();
+        }
+        return toInfo(wallet);
+    }
+
+    @Override
+    @Transactional
+    public void reserveTransfer(UUID sourceWalletId, UUID ownerId, UUID destinationWalletId, Money amount) {
+        // Same fixed order as the ledger uses for accounts: A->B and B->A at the same time wait for each other
+        if (sourceWalletId.compareTo(destinationWalletId) < 0) {
+            reserveOutgoing(sourceWalletId, ownerId, amount);
+            lockForIncoming(destinationWalletId);
+        } else {
+            lockForIncoming(destinationWalletId);
+            reserveOutgoing(sourceWalletId, ownerId, amount);
+        }
+    }
+
     static WalletInfo toInfo(Wallet wallet) {
         return new WalletInfo(wallet.id(), wallet.ownerId(), wallet.currency(), wallet.ledgerAccountId(),
                 wallet.isActive());
+    }
+
+    private Wallet lockForIncoming(UUID walletId) {
+        Wallet wallet = walletRepository.findByIdForShare(walletId).orElseThrow(WalletNotFoundException::new);
+        if (!wallet.isActive()) {
+            throw new WalletNotActiveException();
+        }
+        return wallet;
     }
 
     private Wallet requireOwned(UUID walletId, UUID ownerId) {
