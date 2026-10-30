@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: digital-wallet
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # Only one of them is up at a time: the app started from the IDE, or the container from --profile app
+      - targets: ["host.docker.internal:8081"]
+        labels:
+          runtime: host
+      - targets: ["app:8081"]
+        labels:
+          runtime: container

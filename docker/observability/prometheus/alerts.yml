@@ -1,0 +1,58 @@
+# Evaluated by Prometheus and shown under Alerts; wire an Alertmanager to route them to people.
+groups:
+  - name: digital-wallet
+    rules:
+      - alert: LedgerDiscrepancy
+        expr: wallet_ledger_reconciliation_discrepancies > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: The latest ledger reconciliation found {{ $value }} discrepancies
+          description: Check GET /api/v1/admin/reconciliations; balances or journal entries no longer agree.
+
+      - alert: LedgerReconciliationStale
+        # The job runs hourly; two missed runs means it is stuck or failing
+        expr: time() - wallet_ledger_reconciliation_last_run_seconds > 2 * 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: No ledger reconciliation has finished in over two hours
+
+      - alert: EventOutboxBacklog
+        expr: wallet_events_oldest_pending_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: An event has been waiting for its listener for over 5 minutes
+          description: Audit entries are falling behind; look for listener errors in the logs.
+
+      - alert: HighServerErrorRate
+        expr: >
+          sum(rate(http_server_requests_seconds_count{application="digital-wallet", status=~"5.."}[5m]))
+          / sum(rate(http_server_requests_seconds_count{application="digital-wallet"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: More than 5% of requests fail with a server error
+
+      - alert: SlowRequests
+        expr: >
+          histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{application="digital-wallet",
+          uri!~"/actuator.*"}[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 95th percentile latency is above one second
+
+      - alert: RateLimitSurge
+        # Sustained rejections on login usually mean credential stuffing from a few addresses
+        expr: sum by (rule) (rate(wallet_rate_limit_rejections_total[5m])) * 60 > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 30 requests per minute rejected by rate limit rule {{ $labels.rule }}"

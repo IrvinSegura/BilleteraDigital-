@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: digital-wallet
+    folder: Digital Wallet
+    type: file
+    # Dashboards are code: edits made in the UI are lost on restart, change the JSON instead
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
