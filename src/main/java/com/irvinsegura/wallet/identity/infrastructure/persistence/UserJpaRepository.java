@@ -14,5 +14,7 @@ interface UserJpaRepository extends JpaRepository<UserEntity, UUID> {
     @Query("select u from UserEntity u where u.email = :email")
     Optional<UserEntity> findByEmailForUpdate(@Param("email") String email);
 
+    Optional<UserEntity> findByEmail(String email);
+
     boolean existsByEmail(String email);
 }

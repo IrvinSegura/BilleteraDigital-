@@ -9,6 +9,8 @@ public interface UserRepository {
 
     Optional<User> findById(UserId id);
 
+    Optional<User> findByEmail(Email email);
+
     /**
      * Loads the user with a row lock, so concurrent logins cannot lose failed-attempt increments.
      */

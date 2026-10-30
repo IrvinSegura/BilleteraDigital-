@@ -33,6 +33,11 @@ class WalletPersistenceAdapter implements WalletRepository {
     }
 
     @Override
+    public Optional<Wallet> findByOwnerAndCurrency(UUID ownerId, Currency currency) {
+        return jpaRepository.findByOwnerIdAndCurrency(ownerId, currency.getCurrencyCode()).map(WalletEntity::toDomain);
+    }
+
+    @Override
     public boolean existsByOwnerAndCurrency(UUID ownerId, Currency currency) {
         return jpaRepository.existsByOwnerIdAndCurrency(ownerId, currency.getCurrencyCode());
     }

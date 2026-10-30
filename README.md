@@ -103,11 +103,35 @@ Mount both files as secrets and point `JWT_PRIVATE_KEY_LOCATION` and `JWT_PUBLIC
 | GET | `/api/v1/wallets` | Your wallets with their balances |
 | GET | `/api/v1/wallets/{id}` | One wallet; other users' wallets answer `404` |
 | GET | `/api/v1/wallets/{id}/movements?page=0&size=20` | Statement, newest first, with the balance after each movement |
-| POST | `/api/v1/wallets/{id}/deposits` | Simulated top-up (`{"amount": 100.50}`) |
+| POST | `/api/v1/wallets/{id}/deposits` | Simulated top-up (`{"amount": 100.50}`); needs `Idempotency-Key` |
 
 All of them require a bearer token. Amounts are returned as decimal strings (`{"amount": "100.50", "currency":
 "MXN"}`) so clients never lose cents to floating point. Money is recorded in a double-entry ledger: see
 [ADR 0003](docs/adr/0003-double-entry-ledger.md).
+
+## Transfers
+
+```http
+POST /api/v1/transfers
+Authorization: Bearer <accessToken>
+Idempotency-Key: 6f1c2a9e-3b7d-4c55-9a0e-2f8b1d4c7e10
+
+{"sourceWalletId": "...", "recipientEmail": "bob@example.com", "amount": 30.25, "description": "Dinner"}
+```
+
+The recipient receives into their wallet in the sender's currency. `GET /api/v1/transfers/{id}` returns a transfer
+to its sender, and both statements show it with the transfer id as `operationId`.
+
+Every request that moves money needs an `Idempotency-Key` (use a new UUID per user action):
+
+| Situation | Response |
+|---|---|
+| First request | `201`, `Idempotent-Replayed: false` |
+| Retry with the same key and body, even concurrent | Same `201` body, `Idempotent-Replayed: true`; money moves once |
+| Same key, different body | `422 IDEMPOTENCY_KEY_REUSED` |
+| Request failed (e.g. `INSUFFICIENT_FUNDS`) | Nothing is stored; the key can be retried |
+
+Details in [ADR 0004](docs/adr/0004-idempotency-keys.md).
 
 ## Tests
 
@@ -141,7 +165,7 @@ Send an `X-Correlation-Id` header to trace a request across logs; one is generat
 | 0 | Project skeleton, modules, architecture tests, Docker, CI | Done |
 | 1 | Identity: registration, login, JWT (RS256), refresh token rotation, lockout | Done |
 | 2 | Accounts and ledger: wallets, system accounts, journal entries, deposits | Done |
-| 3 | Transfers: ordered pessimistic locking, idempotency keys, concurrency tests | Pending |
+| 3 | Transfers: ordered pessimistic locking, idempotency keys, concurrency tests | Done |
 | 4 | Withdrawals, daily limits, account freeze, audit log, admin endpoints | Pending |
 | 5 | Reconciliation job, rate limiting, metrics, tracing, dashboards | Pending |
 | 6 | Event-driven notifications, load testing, documentation | Pending |

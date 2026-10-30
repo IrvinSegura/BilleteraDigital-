@@ -12,6 +12,8 @@ public interface WalletRepository {
 
     List<Wallet> findByOwner(UUID ownerId);
 
+    Optional<Wallet> findByOwnerAndCurrency(UUID ownerId, Currency currency);
+
     boolean existsByOwnerAndCurrency(UUID ownerId, Currency currency);
 
     /**
