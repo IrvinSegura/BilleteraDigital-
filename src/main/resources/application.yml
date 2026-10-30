@@ -23,6 +23,12 @@ spring:
   threads:
     virtual:
       enabled: true
+  modulith:
+    events:
+      # Events are stored with the transaction that publishes them (outbox); listeners interrupted by a crash or
+      # restart run again on startup, and finished publications are deleted to keep the table small
+      republish-outstanding-events-on-restart: true
+      completion-mode: delete
 
 server:
   shutdown: graceful
@@ -57,3 +63,13 @@ wallet:
       duration: 15m
     password:
       hash-strength: 12
+    # Administrator created at startup when both are set; never promotes an existing user
+    admin:
+      email: ${ADMIN_EMAIL:}
+      password: ${ADMIN_PASSWORD:}
+  accounts:
+    limit-zone: America/Mexico_City
+    # Money that may leave a wallet per local day (withdrawals + transfers sent)
+    daily-outgoing-limit:
+      MXN: 50000.00
+      USD: 3000.00

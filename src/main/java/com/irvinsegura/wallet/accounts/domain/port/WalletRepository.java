@@ -10,6 +10,12 @@ public interface WalletRepository {
 
     Optional<Wallet> findById(UUID id);
 
+    /**
+     * Loads the wallet with a row lock. Only the wallet money leaves is locked, so two opposite transfers lock
+     * different rows and cannot deadlock here.
+     */
+    Optional<Wallet> findByIdForUpdate(UUID id);
+
     List<Wallet> findByOwner(UUID ownerId);
 
     Optional<Wallet> findByOwnerAndCurrency(UUID ownerId, Currency currency);

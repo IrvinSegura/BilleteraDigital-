@@ -36,6 +36,8 @@ services:
       DB_APP_PASSWORD: ${DB_APP_PASSWORD:-wallet_app_dev}
       # Local runs only: real deployments mount the keys and set JWT_PRIVATE_KEY_LOCATION / JWT_PUBLIC_KEY_LOCATION
       JWT_GENERATE_KEYS_IF_MISSING: "true"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     ports:
       - "8080:8080"
 

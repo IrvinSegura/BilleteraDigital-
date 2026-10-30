@@ -15,7 +15,8 @@ public record IdentityProperties(
         @Valid @NotNull Jwt jwt,
         @NotNull Duration refreshTokenTtl,
         @Valid @NotNull Lockout lockout,
-        @Valid @NotNull Password password) {
+        @Valid @NotNull Password password,
+        Admin admin) {
 
     /**
      * Key locations accept any Spring resource, e.g. {@code file:/run/secrets/jwt-private.pem}. The private key
@@ -33,5 +34,20 @@ public record IdentityProperties(
     }
 
     public record Password(@Min(4) @Max(31) int hashStrength) {
+    }
+
+    /**
+     * Administrator created at startup when both values are set. The password must follow the normal policy.
+     */
+    public record Admin(String email, String password) {
+
+        boolean isConfigured() {
+            return email != null && !email.isBlank() && password != null && !password.isBlank();
+        }
+
+        @Override
+        public String toString() {
+            return "Admin[email=%s]".formatted(email);
+        }
     }
 }

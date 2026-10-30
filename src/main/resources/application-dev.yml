@@ -20,3 +20,6 @@ wallet:
     jwt:
       # Temporary key pair per run: restarting the app logs everyone out
       generate-keys-if-missing: true
+    admin:
+      email: ${ADMIN_EMAIL:admin@wallet.local}
+      password: ${ADMIN_PASSWORD:admin-dev-password}
