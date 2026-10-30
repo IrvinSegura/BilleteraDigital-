@@ -2,7 +2,6 @@ package com.irvinsegura.wallet.transfers;
 
 import static com.irvinsegura.wallet.support.ApiClient.newKey;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.irvinsegura.wallet.TestcontainersConfiguration;
@@ -16,7 +15,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,8 +38,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(TestcontainersConfiguration.class)
 class IncomingMoneyFreezeIntegrationTest {
 
-    // Long enough for the request to reach the lock, short enough to keep the test fast
-    private static final long BLOCKED_FOR_MILLIS = 500;
+    private static final long TIMEOUT_SECONDS = 10;
 
     @Autowired
     private MockMvc mockMvc;
@@ -88,7 +85,7 @@ class IncomingMoneyFreezeIntegrationTest {
     }
 
     /**
-     * Freezes the wallet in a transaction kept open until the operation is shown to be blocked by it.
+     * Freezes the wallet in a transaction kept open until the operation is waiting for it, then commits the freeze.
      */
     private MockHttpServletResponse whileFreezing(String walletId, Callable<MockHttpServletResponse> operation)
             throws Exception {
@@ -106,14 +103,34 @@ class IncomingMoneyFreezeIntegrationTest {
             frozen.await();
 
             Future<MockHttpServletResponse> result = executor.submit(operation);
-            assertThatThrownBy(() -> result.get(BLOCKED_FOR_MILLIS, TimeUnit.MILLISECONDS))
-                    .as("the operation must wait for the freeze in progress")
-                    .isInstanceOf(TimeoutException.class);
-
-            commit.countDown();
-            freeze.get(10, TimeUnit.SECONDS);
-            return result.get(10, TimeUnit.SECONDS);
+            try {
+                awaitWaitingForLock(result);
+            } finally {
+                // Never leave the freeze open, so a failure does not also hang the test
+                commit.countDown();
+            }
+            freeze.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         }
+    }
+
+    /**
+     * Asks PostgreSQL instead of timing the request: passes once the operation's statement waits for a row lock, and
+     * fails as soon as the operation finishes without waiting, which is what the race looked like.
+     */
+    private void awaitWaitingForLock(Future<?> operation) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+        while (sessionsWaitingForLock() == 0) {
+            assertThat(operation.isDone()).as("the operation finished without waiting for the freeze").isFalse();
+            assertThat(System.nanoTime() - deadline).as("the operation never waited for the freeze").isNegative();
+            Thread.sleep(20);
+        }
+    }
+
+    private long sessionsWaitingForLock() {
+        return jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM pg_stat_activity
+                WHERE datname = current_database() AND wait_event_type = 'Lock'""", Long.class);
     }
 
     private static void assertRejectedAsFrozen(MockHttpServletResponse response) throws Exception {
@@ -123,7 +140,7 @@ class IncomingMoneyFreezeIntegrationTest {
 
     private static void await(CountDownLatch latch) {
         try {
-            if (!latch.await(10, TimeUnit.SECONDS)) {
+            if (!latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("Timed out waiting for the operation");
             }
         } catch (InterruptedException e) {
