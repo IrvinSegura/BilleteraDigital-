@@ -173,18 +173,24 @@ class NotificationIntegrationTest {
         DepositCompleted event = new DepositCompleted(depositId, userId, UUID.randomUUID(), 1234, "MXN",
                 Instant.now());
 
-        // Same event twice, as after a crash between the listener's commit and the publication's completion
+        // Same event again once the first delivery is done, as after a crash between the listener's commit and the
+        // publication's completion. Publishing both at once would race inside Spring Modulith, which tracks equal
+        // events to the same listener as one publication in progress and can leave the other one incomplete.
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         transaction.executeWithoutResult(status -> events.publishEvent(event));
-        transaction.executeWithoutResult(status -> events.publishEvent(event));
-
-        assertEventually(() -> assertThat(jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM event_publication WHERE serialized_event LIKE ?", Long.class,
-                "%" + depositId + "%")).isZero());
         assertEventually(() -> assertThat(mailbox.subjectsFor(user.email())).contains("Deposit received"));
+        assertEventually(() -> assertThat(pendingPublicationsOf(depositId)).isZero());
+        transaction.executeWithoutResult(status -> events.publishEvent(event));
+        assertEventually(() -> assertThat(pendingPublicationsOf(depositId)).isZero());
+
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM notifications WHERE reference_id = ?",
                 Long.class, depositId)).isEqualTo(1);
         assertThat(mailbox.subjectsFor(user.email())).filteredOn("Deposit received"::equals).hasSize(1);
+    }
+
+    private long pendingPublicationsOf(UUID referenceId) {
+        return jdbcTemplate.queryForObject("SELECT count(*) FROM event_publication WHERE serialized_event LIKE ?",
+                Long.class, "%" + referenceId + "%");
     }
 
     private ResultActions markRead(TestUser user, String notificationId) throws Exception {
