@@ -29,6 +29,18 @@ spring:
       # restart run again on startup, and finished publications are deleted to keep the table small
       republish-outstanding-events-on-restart: true
       completion-mode: delete
+      # Publications stuck this long in one state (e.g. the instance died mid-listener) are marked failed, so the
+      # retry job (wallet.events.retry) picks them up
+      staleness:
+        published: 10m
+        processing: 10m
+        resubmitted: 10m
+  mail:
+    # JavaMail waits forever by default; a hung mail server must fail the listener so it is retried later
+    properties:
+      "[mail.smtp.connectiontimeout]": 5000
+      "[mail.smtp.timeout]": 10000
+      "[mail.smtp.writetimeout]": 10000
 
 server:
   shutdown: graceful
@@ -47,6 +59,10 @@ management:
       probes:
         enabled: true
       show-details: never
+  health:
+    # Emails are retried through the outbox; a mail server outage must not mark the whole service down
+    mail:
+      enabled: false
   metrics:
     tags:
       application: ${spring.application.name}
@@ -105,6 +121,20 @@ wallet:
   ledger:
     reconciliation:
       cron: "0 5 * * * *"
+  notifications:
+    email:
+      # smtp sends through spring.mail.*; log only writes a line, for environments without a mail server
+      delivery: log
+      from: Digital Wallet <no-reply@wallet.local>
+    cleanup:
+      cron: "0 0 4 * * *"
+      retention: 90d
+  # Failed event listeners (audit, notifications, emails) are retried with exponential backoff
+  events:
+    retry:
+      interval: 30s
+      initial-backoff: 1m
+      max-backoff: 1h
   # Background jobs; every instance schedules them, see each job for how duplicates are avoided
   scheduling:
     enabled: true
