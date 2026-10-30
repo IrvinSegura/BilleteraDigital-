@@ -104,6 +104,7 @@ Mount both files as secrets and point `JWT_PRIVATE_KEY_LOCATION` and `JWT_PUBLIC
 | GET | `/api/v1/wallets/{id}` | One wallet; other users' wallets answer `404` |
 | GET | `/api/v1/wallets/{id}/movements?page=0&size=20` | Statement, newest first, with the balance after each movement |
 | POST | `/api/v1/wallets/{id}/deposits` | Simulated top-up (`{"amount": 100.50}`); needs `Idempotency-Key` |
+| POST | `/api/v1/wallets/{id}/withdrawals` | Simulated payout to the user's bank; needs `Idempotency-Key` |
 
 All of them require a bearer token. Amounts are returned as decimal strings (`{"amount": "100.50", "currency":
 "MXN"}`) so clients never lose cents to floating point. Money is recorded in a double-entry ledger: see
@@ -133,6 +134,26 @@ Every request that moves money needs an `Idempotency-Key` (use a new UUID per us
 
 Details in [ADR 0004](docs/adr/0004-idempotency-keys.md).
 
+## Limits and administration
+
+- **Daily limit:** withdrawals and transfers sent share a limit per wallet and local day (Mexico City time):
+  50,000.00 MXN and 3,000.00 USD by default (`wallet.accounts.daily-outgoing-limit`). Going over it returns
+  `422 DAILY_LIMIT_EXCEEDED` with what is left for today. Deposits are not limited.
+- **Administrator:** created at startup from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (dev profile:
+  `admin@wallet.local` / `admin-dev-password`). An existing user with that email is never promoted.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/wallets/{id}` | Any wallet with owner, balance and status |
+| POST | `/api/v1/admin/wallets/{id}/freeze` | Block all money movement (`{"reason": "..."}`, required) |
+| POST | `/api/v1/admin/wallets/{id}/unfreeze` | Allow it again (`{"reason": "..."}`) |
+| GET | `/api/v1/admin/audit-events?targetId=&actorId=&page=&size=` | Audit log, newest first |
+
+Every `/api/v1/admin/**` endpoint requires the `ADMIN` role (`403 FORBIDDEN` otherwise). Registrations, lockouts,
+wallet changes and every money movement are written to an append-only audit log through Spring Modulith's event
+outbox, so no entry is lost even if the app crashes right after an operation. See
+[ADR 0005](docs/adr/0005-audit-log-limits-and-admin.md).
+
 ## Tests
 
 ```bash
@@ -156,16 +177,6 @@ Every error follows RFC 9457 Problem Details plus a stable `code` and the reques
 }
 ```
 
+
 Send an `X-Correlation-Id` header to trace a request across logs; one is generated otherwise.
 
-## Roadmap
-
-| Phase | Scope | Status |
-|---|---|---|
-| 0 | Project skeleton, modules, architecture tests, Docker, CI | Done |
-| 1 | Identity: registration, login, JWT (RS256), refresh token rotation, lockout | Done |
-| 2 | Accounts and ledger: wallets, system accounts, journal entries, deposits | Done |
-| 3 | Transfers: ordered pessimistic locking, idempotency keys, concurrency tests | Done |
-| 4 | Withdrawals, daily limits, account freeze, audit log, admin endpoints | Pending |
-| 5 | Reconciliation job, rate limiting, metrics, tracing, dashboards | Pending |
-| 6 | Event-driven notifications, load testing, documentation | Pending |
