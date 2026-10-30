@@ -45,4 +45,11 @@ class OutgoingUsageJdbcAdapter implements OutgoingUsageRepository {
                 .param("amount", amount.minorUnits())
                 .update();
     }
+
+    @Override
+    public int deleteBefore(LocalDate day) {
+        return jdbcClient.sql("DELETE FROM wallet_daily_outgoing WHERE day < :day")
+                .param("day", day)
+                .update();
+    }
 }

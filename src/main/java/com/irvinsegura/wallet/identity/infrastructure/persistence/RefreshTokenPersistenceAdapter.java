@@ -30,4 +30,9 @@ class RefreshTokenPersistenceAdapter implements RefreshTokenRepository {
     public void revokeFamily(UUID familyId, Instant now) {
         jpaRepository.revokeFamily(familyId, now);
     }
+
+    @Override
+    public int deleteExpiredFamilies(Instant now) {
+        return jpaRepository.deleteExpiredFamilies(now);
+    }
 }

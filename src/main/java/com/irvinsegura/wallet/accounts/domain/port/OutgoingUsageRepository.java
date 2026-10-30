@@ -14,4 +14,9 @@ public interface OutgoingUsageRepository {
     Money usedOn(UUID walletId, LocalDate day, Currency currency);
 
     void add(UUID walletId, LocalDate day, Money amount);
+
+    /**
+     * @return how many rows were deleted
+     */
+    int deleteBefore(LocalDate day);
 }

@@ -67,12 +67,23 @@ wallet:
     admin:
       email: ${ADMIN_EMAIL:}
       password: ${ADMIN_PASSWORD:}
+    # Login families whose tokens have all expired
+    refresh-token-cleanup:
+      cron: "0 15 3 * * *"
   accounts:
     limit-zone: America/Mexico_City
     # Money that may leave a wallet per local day (withdrawals + transfers sent)
     daily-outgoing-limit:
       MXN: 50000.00
       USD: 3000.00
+    usage-cleanup:
+      cron: "0 30 3 * * *"
+      retention: 7d
+  transfers:
+    # Retries with the same key after this are treated as new requests
+    idempotency-key-cleanup:
+      cron: "0 45 3 * * *"
+      retention: 24h
   ledger:
     reconciliation:
       cron: "0 5 * * * *"
