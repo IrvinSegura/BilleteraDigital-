@@ -26,9 +26,17 @@ public record Money(long minorUnits, Currency currency) {
      */
     public static Money of(BigDecimal amount, String currencyCode) {
         Currency currency = Currency.getInstance(currencyCode);
-        // movePointRight + longValueExact throws instead of silently truncating extra decimals or overflowing
-        long minorUnits = amount.movePointRight(currency.getDefaultFractionDigits()).longValueExact();
-        return new Money(minorUnits, currency);
+        if (amount.signum() < 0) {
+            throw new InvalidAmountException("Amount cannot be negative");
+        }
+        try {
+            // movePointRight + longValueExact throws instead of silently truncating extra decimals or overflowing
+            long minorUnits = amount.movePointRight(currency.getDefaultFractionDigits()).longValueExact();
+            return new Money(minorUnits, currency);
+        } catch (ArithmeticException e) {
+            throw new InvalidAmountException("Amount must have at most %d decimals and fit the supported range"
+                    .formatted(currency.getDefaultFractionDigits()));
+        }
     }
 
     public static Money zero(Currency currency) {
