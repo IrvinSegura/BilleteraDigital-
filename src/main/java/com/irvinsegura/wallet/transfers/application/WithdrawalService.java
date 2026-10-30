@@ -7,10 +7,12 @@ import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
 import com.irvinsegura.wallet.shared.domain.InvalidAmountException;
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.transfers.WithdrawalCompleted;
 import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
 import com.irvinsegura.wallet.transfers.domain.model.Withdrawal;
 import com.irvinsegura.wallet.transfers.domain.port.WithdrawalRepository;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 /**
@@ -26,13 +28,15 @@ public class WithdrawalService {
     private final Ledger ledger;
     private final WithdrawalRepository withdrawalRepository;
     private final IdempotentExecutor idempotentExecutor;
+    private final ApplicationEventPublisher events;
 
     WithdrawalService(Wallets wallets, Ledger ledger, WithdrawalRepository withdrawalRepository,
-            IdempotentExecutor idempotentExecutor) {
+            IdempotentExecutor idempotentExecutor, ApplicationEventPublisher events) {
         this.wallets = wallets;
         this.ledger = ledger;
         this.withdrawalRepository = withdrawalRepository;
         this.idempotentExecutor = idempotentExecutor;
+        this.events = events;
     }
 
     public Idempotent<WithdrawalReceipt> withdraw(WithdrawalCommand command) {
@@ -59,6 +63,8 @@ public class WithdrawalService {
         Withdrawal withdrawal = new Withdrawal(withdrawalId, command.userId(), wallet.id(), amount,
                 ledger.balanceOf(wallet.ledgerAccountId()), entry.journalEntryId(), entry.postedAt());
         withdrawalRepository.save(withdrawal);
+        events.publishEvent(new WithdrawalCompleted(withdrawalId, command.userId(), wallet.id(), amount.minorUnits(),
+                amount.currency().getCurrencyCode(), entry.postedAt()));
         return WithdrawalReceipt.from(withdrawal);
     }
 }

@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.identity.application;
 
+import com.irvinsegura.wallet.identity.UserLockedOut;
 import com.irvinsegura.wallet.identity.domain.model.AccessToken;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
 import com.irvinsegura.wallet.identity.domain.model.Email;
@@ -21,6 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,19 +40,21 @@ public class AuthenticationService {
     private final AccessTokenIssuer accessTokenIssuer;
     private final LockoutPolicy lockoutPolicy;
     private final RefreshTokenPolicy refreshTokenPolicy;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
     // Checked against when the email is unknown, so both failure paths take the same time and leak nothing
     private final String unknownUserHash;
 
     AuthenticationService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordHasher passwordHasher, AccessTokenIssuer accessTokenIssuer, LockoutPolicy lockoutPolicy,
-            RefreshTokenPolicy refreshTokenPolicy, Clock clock) {
+            RefreshTokenPolicy refreshTokenPolicy, ApplicationEventPublisher events, Clock clock) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordHasher = passwordHasher;
         this.accessTokenIssuer = accessTokenIssuer;
         this.lockoutPolicy = lockoutPolicy;
         this.refreshTokenPolicy = refreshTokenPolicy;
+        this.events = events;
         this.clock = clock;
         this.unknownUserHash = passwordHasher.hash(UUID.randomUUID().toString());
     }
@@ -74,6 +78,8 @@ public class AuthenticationService {
             if (user.isLockedAt(now)) {
                 log.warn("User {} locked until {} after {} failed logins", user.id(), user.lockedUntil(),
                         user.failedLoginAttempts());
+                // Committed with the failed attempt thanks to noRollbackFor
+                events.publishEvent(new UserLockedOut(user.id().value(), user.lockedUntil(), now));
             }
             throw new InvalidCredentialsException();
         }

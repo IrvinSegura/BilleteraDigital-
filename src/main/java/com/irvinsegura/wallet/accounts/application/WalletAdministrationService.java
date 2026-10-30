@@ -1,10 +1,13 @@
 package com.irvinsegura.wallet.accounts.application;
 
 import com.irvinsegura.wallet.accounts.WalletNotFoundException;
+import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.accounts.domain.model.Wallet;
 import com.irvinsegura.wallet.accounts.domain.port.WalletRepository;
 import com.irvinsegura.wallet.ledger.Ledger;
+import java.time.Clock;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,10 +19,15 @@ public class WalletAdministrationService {
 
     private final WalletRepository walletRepository;
     private final Ledger ledger;
+    private final ApplicationEventPublisher events;
+    private final Clock clock;
 
-    WalletAdministrationService(WalletRepository walletRepository, Ledger ledger) {
+    WalletAdministrationService(WalletRepository walletRepository, Ledger ledger, ApplicationEventPublisher events,
+            Clock clock) {
         this.walletRepository = walletRepository;
         this.ledger = ledger;
+        this.events = events;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -43,6 +51,8 @@ public class WalletAdministrationService {
         boolean changed = freeze ? wallet.freeze() : wallet.unfreeze();
         if (changed) {
             walletRepository.save(wallet);
+            events.publishEvent(new WalletStatusChanged(wallet.id(), wallet.ownerId(), wallet.status().name(),
+                    adminId, reason, clock.instant()));
         }
         return toView(wallet);
     }

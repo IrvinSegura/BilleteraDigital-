@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.identity.application;
 
+import com.irvinsegura.wallet.identity.UserRegistered;
 import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyRegisteredException;
 import com.irvinsegura.wallet.identity.domain.model.PasswordPolicy;
@@ -11,6 +12,7 @@ import java.time.Clock;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,11 +28,14 @@ public class AdminProvisioningService {
 
     private final UserRepository userRepository;
     private final PasswordHasher passwordHasher;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
-    AdminProvisioningService(UserRepository userRepository, PasswordHasher passwordHasher, Clock clock) {
+    AdminProvisioningService(UserRepository userRepository, PasswordHasher passwordHasher,
+            ApplicationEventPublisher events, Clock clock) {
         this.userRepository = userRepository;
         this.passwordHasher = passwordHasher;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -50,6 +55,7 @@ public class AdminProvisioningService {
         PasswordPolicy.check(rawPassword);
         User admin = User.registerAdmin(email, passwordHasher.hash(rawPassword), ADMIN_NAME, clock.instant());
         userRepository.save(admin);
+        events.publishEvent(new UserRegistered(admin.id().value(), admin.role().name(), admin.createdAt()));
         log.info("Administrator account {} created", email);
     }
 }

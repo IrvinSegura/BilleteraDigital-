@@ -7,10 +7,12 @@ import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
 import com.irvinsegura.wallet.shared.domain.InvalidAmountException;
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.domain.model.Deposit;
 import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
 import com.irvinsegura.wallet.transfers.domain.port.DepositRepository;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 /**
@@ -26,13 +28,15 @@ public class DepositService {
     private final Ledger ledger;
     private final DepositRepository depositRepository;
     private final IdempotentExecutor idempotentExecutor;
+    private final ApplicationEventPublisher events;
 
     DepositService(Wallets wallets, Ledger ledger, DepositRepository depositRepository,
-            IdempotentExecutor idempotentExecutor) {
+            IdempotentExecutor idempotentExecutor, ApplicationEventPublisher events) {
         this.wallets = wallets;
         this.ledger = ledger;
         this.depositRepository = depositRepository;
         this.idempotentExecutor = idempotentExecutor;
+        this.events = events;
     }
 
     public Idempotent<DepositReceipt> deposit(DepositCommand command) {
@@ -59,6 +63,8 @@ public class DepositService {
         Deposit deposit = new Deposit(depositId, command.userId(), wallet.id(), amount,
                 ledger.balanceOf(wallet.ledgerAccountId()), entry.journalEntryId(), entry.postedAt());
         depositRepository.save(deposit);
+        events.publishEvent(new DepositCompleted(depositId, command.userId(), wallet.id(), amount.minorUnits(),
+                amount.currency().getCurrencyCode(), entry.postedAt()));
         return DepositReceipt.from(deposit);
     }
 }

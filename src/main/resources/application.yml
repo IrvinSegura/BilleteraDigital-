@@ -23,6 +23,12 @@ spring:
   threads:
     virtual:
       enabled: true
+  modulith:
+    events:
+      # Events are stored with the transaction that publishes them (outbox); listeners interrupted by a crash or
+      # restart run again on startup, and finished publications are deleted to keep the table small
+      republish-outstanding-events-on-restart: true
+      completion-mode: delete
 
 server:
   shutdown: graceful

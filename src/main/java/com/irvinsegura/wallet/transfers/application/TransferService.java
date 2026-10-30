@@ -9,6 +9,7 @@ import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
 import com.irvinsegura.wallet.shared.domain.InvalidAmountException;
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.transfers.TransferCompleted;
 import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
 import com.irvinsegura.wallet.transfers.domain.model.RecipientNotFoundException;
 import com.irvinsegura.wallet.transfers.domain.model.SelfTransferException;
@@ -17,6 +18,7 @@ import com.irvinsegura.wallet.transfers.domain.model.TransferNotFoundException;
 import com.irvinsegura.wallet.transfers.domain.port.TransferRepository;
 import java.util.Locale;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,14 +36,16 @@ public class TransferService {
     private final Ledger ledger;
     private final TransferRepository transferRepository;
     private final IdempotentExecutor idempotentExecutor;
+    private final ApplicationEventPublisher events;
 
     TransferService(Wallets wallets, UserDirectory users, Ledger ledger, TransferRepository transferRepository,
-            IdempotentExecutor idempotentExecutor) {
+            IdempotentExecutor idempotentExecutor, ApplicationEventPublisher events) {
         this.wallets = wallets;
         this.users = users;
         this.ledger = ledger;
         this.transferRepository = transferRepository;
         this.idempotentExecutor = idempotentExecutor;
+        this.events = events;
     }
 
     public Idempotent<TransferView> transfer(TransferCommand command) {
@@ -90,6 +94,8 @@ public class TransferService {
                 recipient.email(), destination.id(), amount, command.description(), entry.journalEntryId(),
                 entry.postedAt());
         transferRepository.save(transfer);
+        events.publishEvent(new TransferCompleted(transferId, command.userId(), source.id(), recipient.id(),
+                destination.id(), amount.minorUnits(), amount.currency().getCurrencyCode(), entry.postedAt()));
         return TransferView.from(transfer);
     }
 }

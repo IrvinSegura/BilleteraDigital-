@@ -3,6 +3,7 @@ package com.irvinsegura.wallet.accounts.application;
 import com.irvinsegura.wallet.accounts.WalletInfo;
 import com.irvinsegura.wallet.accounts.WalletNotActiveException;
 import com.irvinsegura.wallet.accounts.WalletNotFoundException;
+import com.irvinsegura.wallet.accounts.WalletOpened;
 import com.irvinsegura.wallet.accounts.Wallets;
 import com.irvinsegura.wallet.accounts.domain.model.DailyLimitPolicy;
 import com.irvinsegura.wallet.accounts.domain.model.Wallet;
@@ -19,6 +20,7 @@ import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,14 +31,16 @@ public class WalletService implements Wallets {
     private final OutgoingUsageRepository outgoingUsageRepository;
     private final DailyLimitPolicy dailyLimitPolicy;
     private final Ledger ledger;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
     WalletService(WalletRepository walletRepository, OutgoingUsageRepository outgoingUsageRepository,
-            DailyLimitPolicy dailyLimitPolicy, Ledger ledger, Clock clock) {
+            DailyLimitPolicy dailyLimitPolicy, Ledger ledger, ApplicationEventPublisher events, Clock clock) {
         this.walletRepository = walletRepository;
         this.outgoingUsageRepository = outgoingUsageRepository;
         this.dailyLimitPolicy = dailyLimitPolicy;
         this.ledger = ledger;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -49,6 +53,7 @@ public class WalletService implements Wallets {
         // Same transaction: if saving the wallet fails, the ledger account is rolled back with it
         Wallet wallet = Wallet.open(ownerId, currency, ledger.openUserAccount(currency), clock.instant());
         walletRepository.save(wallet);
+        events.publishEvent(new WalletOpened(wallet.id(), ownerId, currency.getCurrencyCode(), wallet.createdAt()));
         return toSummary(wallet);
     }
 
