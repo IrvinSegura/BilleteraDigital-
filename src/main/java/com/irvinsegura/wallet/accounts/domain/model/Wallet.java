@@ -14,9 +14,9 @@ public class Wallet {
     private final UUID ownerId;
     private final Currency currency;
     private final UUID ledgerAccountId;
-    private final WalletStatus status;
     private final Instant createdAt;
     private final Long version;
+    private WalletStatus status;
 
     private Wallet(UUID id, UUID ownerId, Currency currency, UUID ledgerAccountId, WalletStatus status,
             Instant createdAt, Long version) {
@@ -47,6 +47,26 @@ public class Wallet {
 
     public boolean isActive() {
         return status == WalletStatus.ACTIVE;
+    }
+
+    /**
+     * Stops all money movement in and out of the wallet. Returns whether the status changed, so freezing twice
+     * records a single event.
+     */
+    public boolean freeze() {
+        return changeStatus(WalletStatus.FROZEN);
+    }
+
+    public boolean unfreeze() {
+        return changeStatus(WalletStatus.ACTIVE);
+    }
+
+    private boolean changeStatus(WalletStatus newStatus) {
+        if (status == newStatus) {
+            return false;
+        }
+        status = newStatus;
+        return true;
     }
 
     public UUID id() {
