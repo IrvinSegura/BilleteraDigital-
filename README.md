@@ -95,6 +95,20 @@ openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem
 Mount both files as secrets and point `JWT_PRIVATE_KEY_LOCATION` and `JWT_PUBLIC_KEY_LOCATION` at them
 (e.g. `file:/run/secrets/jwt-private.pem`). `*.pem` files are git-ignored.
 
+## Wallets and deposits
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/wallets` | Open a wallet (`{"currency": "MXN"}`); one per currency, MXN and USD supported |
+| GET | `/api/v1/wallets` | Your wallets with their balances |
+| GET | `/api/v1/wallets/{id}` | One wallet; other users' wallets answer `404` |
+| GET | `/api/v1/wallets/{id}/movements?page=0&size=20` | Statement, newest first, with the balance after each movement |
+| POST | `/api/v1/wallets/{id}/deposits` | Simulated top-up (`{"amount": 100.50}`) |
+
+All of them require a bearer token. Amounts are returned as decimal strings (`{"amount": "100.50", "currency":
+"MXN"}`) so clients never lose cents to floating point. Money is recorded in a double-entry ledger: see
+[ADR 0003](docs/adr/0003-double-entry-ledger.md).
+
 ## Tests
 
 ```bash
@@ -126,7 +140,7 @@ Send an `X-Correlation-Id` header to trace a request across logs; one is generat
 |---|---|---|
 | 0 | Project skeleton, modules, architecture tests, Docker, CI | Done |
 | 1 | Identity: registration, login, JWT (RS256), refresh token rotation, lockout | Done |
-| 2 | Accounts and ledger: wallets, system accounts, journal entries, deposits | Pending |
+| 2 | Accounts and ledger: wallets, system accounts, journal entries, deposits | Done |
 | 3 | Transfers: ordered pessimistic locking, idempotency keys, concurrency tests | Pending |
 | 4 | Withdrawals, daily limits, account freeze, audit log, admin endpoints | Pending |
 | 5 | Reconciliation job, rate limiting, metrics, tracing, dashboards | Pending |
