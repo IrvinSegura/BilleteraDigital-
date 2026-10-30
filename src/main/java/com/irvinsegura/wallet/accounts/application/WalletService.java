@@ -12,6 +12,7 @@ import com.irvinsegura.wallet.ledger.UnsupportedCurrencyException;
 import java.time.Clock;
 import java.util.Currency;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,7 +60,16 @@ public class WalletService implements Wallets {
     @Override
     @Transactional(readOnly = true)
     public WalletInfo getOwnedWallet(UUID walletId, UUID ownerId) {
-        Wallet wallet = requireOwned(walletId, ownerId);
+        return toInfo(requireOwned(walletId, ownerId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<WalletInfo> findWallet(UUID ownerId, Currency currency) {
+        return walletRepository.findByOwnerAndCurrency(ownerId, currency).map(WalletService::toInfo);
+    }
+
+    private static WalletInfo toInfo(Wallet wallet) {
         return new WalletInfo(wallet.id(), wallet.ownerId(), wallet.currency(), wallet.ledgerAccountId(),
                 wallet.isActive());
     }

@@ -1,5 +1,7 @@
 package com.irvinsegura.wallet.accounts;
 
+import java.util.Currency;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -14,4 +16,9 @@ public interface Wallets {
      *                                 probe other users' wallet ids
      */
     WalletInfo getOwnedWallet(UUID walletId, UUID ownerId);
+
+    /**
+     * The user's wallet in that currency, e.g. to receive a transfer. Users have at most one per currency.
+     */
+    Optional<WalletInfo> findWallet(UUID ownerId, Currency currency);
 }
