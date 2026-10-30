@@ -57,6 +57,10 @@ wallet:
       duration: 15m
     password:
       hash-strength: 12
+    # Administrator created at startup when both are set; never promotes an existing user
+    admin:
+      email: ${ADMIN_EMAIL:}
+      password: ${ADMIN_PASSWORD:}
   accounts:
     limit-zone: America/Mexico_City
     # Money that may leave a wallet per local day (withdrawals + transfers sent)

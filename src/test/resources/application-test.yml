@@ -12,6 +12,9 @@ wallet:
     password:
       # Minimum cost keeps tests fast; production uses 12
       hash-strength: 4
+    admin:
+      email: admin@wallet.test
+      password: admin-test-password
   accounts:
     # Low limits so tests can reach them without huge deposits
     daily-outgoing-limit:

@@ -16,6 +16,9 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 public final class ApiClient {
 
     private static final String PASSWORD = "correct horse battery staple";
+    // Created at startup from application-test.yml
+    private static final String ADMIN_EMAIL = "admin@wallet.test";
+    private static final String ADMIN_PASSWORD = "admin-test-password";
 
     private final MockMvc mockMvc;
 
@@ -30,11 +33,26 @@ public final class ApiClient {
                                 {"email": "%s", "password": "%s", "fullName": "Ana López"}"""
                                 .formatted(email, PASSWORD)))
                 .andExpect(status().isCreated());
+        return login(email, PASSWORD);
+    }
+
+    public TestUser admin() throws Exception {
+        return login(ADMIN_EMAIL, ADMIN_PASSWORD);
+    }
+
+    public TestUser login(String email, String password) throws Exception {
         ResultActions login = mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"email": "%s", "password": "%s"}""".formatted(email, PASSWORD)))
+                                {"email": "%s", "password": "%s"}""".formatted(email, password)))
                 .andExpect(status().isOk());
         return new TestUser(email, read(login, "$.accessToken"));
+    }
+
+    public ResultActions postJson(TestUser user, String path, String json) throws Exception {
+        return mockMvc.perform(post(path)
+                .header("Authorization", user.bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json));
     }
 
     public ResultActions openWallet(TestUser user, String currency) throws Exception {

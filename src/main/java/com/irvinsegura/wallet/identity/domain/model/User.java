@@ -34,12 +34,23 @@ public class User {
     }
 
     public static User register(Email email, String passwordHash, String fullName, Instant now) {
+        return create(email, passwordHash, fullName, Role.USER, now);
+    }
+
+    /**
+     * Only for the administrator account provisioned from configuration; users can never register as admins.
+     */
+    public static User registerAdmin(Email email, String passwordHash, String fullName, Instant now) {
+        return create(email, passwordHash, fullName, Role.ADMIN, now);
+    }
+
+    private static User create(Email email, String passwordHash, String fullName, Role role, Instant now) {
         String name = fullName == null ? "" : fullName.strip();
         if (name.isEmpty() || name.length() > MAX_FULL_NAME_LENGTH) {
             throw new IllegalArgumentException(
                     "fullName must have between 1 and %d characters".formatted(MAX_FULL_NAME_LENGTH));
         }
-        return new User(UserId.newId(), email, passwordHash, name, Role.USER, 0, null, now, null);
+        return new User(UserId.newId(), email, passwordHash, name, role, 0, null, now, null);
     }
 
     /**
