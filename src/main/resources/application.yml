@@ -73,3 +73,9 @@ wallet:
     daily-outgoing-limit:
       MXN: 50000.00
       USD: 3000.00
+  ledger:
+    reconciliation:
+      cron: "0 5 * * * *"
+  # Background jobs; every instance schedules them, see each job for how duplicates are avoided
+  scheduling:
+    enabled: true

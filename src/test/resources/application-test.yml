@@ -20,3 +20,6 @@ wallet:
     daily-outgoing-limit:
       MXN: 500.00
       USD: 500.00
+  # Tests call the jobs' services directly, so a job never fires in the middle of a test
+  scheduling:
+    enabled: false
