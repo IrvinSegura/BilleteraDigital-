@@ -19,7 +19,14 @@ class MoneyTest {
     @Test
     void rejectsMoreDecimalsThanTheCurrencyAllows() {
         assertThatThrownBy(() -> Money.of(new BigDecimal("10.505"), "MXN"))
-                .isInstanceOf(ArithmeticException.class);
+                .isInstanceOf(InvalidAmountException.class)
+                .extracting("code").isEqualTo("INVALID_AMOUNT");
+    }
+
+    @Test
+    void rejectsNegativeDecimalAmounts() {
+        assertThatThrownBy(() -> Money.of(new BigDecimal("-1.00"), "MXN"))
+                .isInstanceOf(InvalidAmountException.class);
     }
 
     @Test
