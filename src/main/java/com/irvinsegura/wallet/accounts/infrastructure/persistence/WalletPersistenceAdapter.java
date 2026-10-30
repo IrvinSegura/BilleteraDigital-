@@ -3,6 +3,9 @@ package com.irvinsegura.wallet.accounts.infrastructure.persistence;
 import com.irvinsegura.wallet.accounts.domain.model.Wallet;
 import com.irvinsegura.wallet.accounts.domain.model.WalletAlreadyExistsException;
 import com.irvinsegura.wallet.accounts.domain.port.WalletRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
@@ -18,6 +21,9 @@ class WalletPersistenceAdapter implements WalletRepository {
 
     private final WalletJpaRepository jpaRepository;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     WalletPersistenceAdapter(WalletJpaRepository jpaRepository) {
         this.jpaRepository = jpaRepository;
     }
@@ -28,13 +34,25 @@ class WalletPersistenceAdapter implements WalletRepository {
     }
 
     @Override
+    public Optional<Wallet> findByIdForUpdate(UUID id) {
+        WalletEntity entity = entityManager.find(WalletEntity.class, id);
+        if (entity == null) {
+            return Optional.empty();
+        }
+        // Refreshing under the lock reloads the row, even if an older copy was read earlier in this transaction
+        entityManager.refresh(entity, LockModeType.PESSIMISTIC_WRITE);
+        return Optional.of(entity.toDomain());
+    }
+
+    @Override
     public List<Wallet> findByOwner(UUID ownerId) {
         return jpaRepository.findByOwnerIdOrderByCreatedAt(ownerId).stream().map(WalletEntity::toDomain).toList();
     }
 
     @Override
     public Optional<Wallet> findByOwnerAndCurrency(UUID ownerId, Currency currency) {
-        return jpaRepository.findByOwnerIdAndCurrency(ownerId, currency.getCurrencyCode()).map(WalletEntity::toDomain);
+        return jpaRepository.findByOwnerIdAndCurrency(ownerId, currency.getCurrencyCode())
+                .map(WalletEntity::toDomain);
     }
 
     @Override

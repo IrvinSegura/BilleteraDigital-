@@ -57,3 +57,9 @@ wallet:
       duration: 15m
     password:
       hash-strength: 12
+  accounts:
+    limit-zone: America/Mexico_City
+    # Money that may leave a wallet per local day (withdrawals + transfers sent)
+    daily-outgoing-limit:
+      MXN: 50000.00
+      USD: 3000.00

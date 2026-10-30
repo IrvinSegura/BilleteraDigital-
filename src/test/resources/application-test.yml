@@ -12,3 +12,8 @@ wallet:
     password:
       # Minimum cost keeps tests fast; production uses 12
       hash-strength: 4
+  accounts:
+    # Low limits so tests can reach them without huge deposits
+    daily-outgoing-limit:
+      MXN: 500.00
+      USD: 500.00

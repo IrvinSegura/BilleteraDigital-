@@ -66,7 +66,6 @@ public class TransferService {
 
     private TransferView execute(UUID transferId, TransferCommand command) {
         WalletInfo source = wallets.getOwnedWallet(command.sourceWalletId(), command.userId());
-        source.ensureActive();
         Money amount = Money.of(command.amount(), source.currency().getCurrencyCode());
         if (amount.isZero()) {
             throw new InvalidAmountException("Amount must be greater than zero");
@@ -80,6 +79,8 @@ public class TransferService {
         WalletInfo destination = wallets.findWallet(recipient.id(), source.currency())
                 .orElseThrow(() -> new RecipientNotFoundException(source.currency()));
         destination.ensureActive();
+        // Last step before moving money, so the sender's wallet row stays locked as briefly as possible
+        wallets.reserveOutgoing(source.id(), command.userId(), amount);
 
         // The ledger locks both accounts in id order, so A->B and B->A at the same time cannot deadlock
         RecordedEntry entry = ledger.record(new NewJournalEntry(ENTRY_TYPE, transferId.toString(),
