@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -18,6 +19,7 @@ import org.springframework.security.oauth2.server.resource.web.access.BearerToke
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
@@ -34,9 +36,11 @@ class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
-            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver) throws Exception {
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver,
+            Environment environment) throws Exception {
         AuthenticationEntryPoint entryPoint = problemDetailsEntryPoint(exceptionResolver);
         AccessDeniedHandler accessDeniedHandler = problemDetailsAccessDeniedHandler(exceptionResolver);
+        RequestMatcher managementPort = managementPortMatcher(environment);
         http
                 // No cookies or server sessions: tokens travel in the Authorization header, so CSRF does not apply
                 .csrf(AbstractHttpConfigurer::disable)
@@ -44,7 +48,11 @@ class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                        // The management port is reachable only from inside the network (Prometheus, probes)
+                        .requestMatchers(managementPort).permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        // Without a separate management port, metrics and module details are for admins only
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // Only served in the dev profile, see springdoc settings
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/error").permitAll()
@@ -59,6 +67,16 @@ class SecurityConfiguration {
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(accessDeniedHandler));
         return http.build();
+    }
+
+    // Matches nothing when actuator shares the application port, so actuator rules below apply there
+    private static RequestMatcher managementPortMatcher(Environment environment) {
+        Integer managementPort = environment.getProperty("management.server.port", Integer.class);
+        int serverPort = environment.getProperty("server.port", Integer.class, 8080);
+        if (managementPort == null || managementPort <= 0 || managementPort == serverPort) {
+            return request -> false;
+        }
+        return request -> request.getLocalPort() == managementPort;
     }
 
     private static JwtAuthenticationConverter jwtAuthenticationConverter() {

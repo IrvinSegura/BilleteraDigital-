@@ -23,6 +23,7 @@
         <springdoc.version>3.2.0</springdoc.version>
         <archunit.version>1.5.1</archunit.version>
         <bucket4j.version>8.21.0</bucket4j.version>
+        <datasource-micrometer.version>2.3.0</datasource-micrometer.version>
     </properties>
 
     <dependencyManagement>
@@ -93,6 +94,35 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- Observability: Prometheus metrics, OpenTelemetry traces over OTLP with SQL spans, module structure -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+            <exclusions>
+                <!-- Metrics are scraped by Prometheus; pushing them over OTLP as well would duplicate them -->
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>micrometer-registry-otlp</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>net.ttddyy.observation</groupId>
+            <artifactId>datasource-micrometer-spring-boot</artifactId>
+            <version>${datasource-micrometer.version}</version>
+        </dependency>
+        <!-- Only the actuator endpoint: spring-modulith-observability proxies every exposed bean with CGLIB, which
+             breaks filters and exception handlers whose final methods then run on an uninitialized proxy -->
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-actuator</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Rate limiting: token buckets kept in a bounded in-memory cache -->

@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.shared.web;
 
 import com.irvinsegura.wallet.shared.domain.DomainException;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,8 +27,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private final MeterRegistry meterRegistry;
+
+    GlobalExceptionHandler(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+
     @ExceptionHandler(DomainException.class)
     ProblemDetail handleDomainException(DomainException ex) {
+        // Codes are a small fixed set, so they are safe as a tag; a jump in e.g. INSUFFICIENT_FUNDS is worth seeing
+        meterRegistry.counter("wallet.business.rejections", "code", ex.getCode()).increment();
         return Problems.create(HttpStatus.UNPROCESSABLE_CONTENT, "Business rule violation", ex.getMessage(),
                 ex.getCode());
     }
