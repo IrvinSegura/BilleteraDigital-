@@ -7,8 +7,11 @@ import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
 import com.irvinsegura.wallet.shared.domain.InvalidAmountException;
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.transfers.domain.model.Deposit;
+import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
+import com.irvinsegura.wallet.transfers.domain.port.DepositRepository;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Simulated top-up: money arrives at the platform's settlement account and is credited to the user's wallet.
@@ -21,14 +24,27 @@ public class DepositService {
 
     private final Wallets wallets;
     private final Ledger ledger;
+    private final DepositRepository depositRepository;
+    private final IdempotentExecutor idempotentExecutor;
 
-    DepositService(Wallets wallets, Ledger ledger) {
+    DepositService(Wallets wallets, Ledger ledger, DepositRepository depositRepository,
+            IdempotentExecutor idempotentExecutor) {
         this.wallets = wallets;
         this.ledger = ledger;
+        this.depositRepository = depositRepository;
+        this.idempotentExecutor = idempotentExecutor;
     }
 
-    @Transactional
-    public DepositReceipt deposit(DepositCommand command) {
+    public Idempotent<DepositReceipt> deposit(DepositCommand command) {
+        String requestHash = IdempotencyRecord.fingerprint(ENTRY_TYPE,
+                command.walletId().toString(),
+                command.amount().stripTrailingZeros().toPlainString());
+        return idempotentExecutor.execute(command.userId(), command.idempotencyKey(), requestHash,
+                depositId -> execute(depositId, command),
+                depositId -> DepositReceipt.from(depositRepository.findById(depositId).orElseThrow()));
+    }
+
+    private DepositReceipt execute(UUID depositId, DepositCommand command) {
         WalletInfo wallet = wallets.getOwnedWallet(command.walletId(), command.userId());
         wallet.ensureActive();
         Money amount = Money.of(command.amount(), wallet.currency().getCurrencyCode());
@@ -36,11 +52,13 @@ public class DepositService {
             throw new InvalidAmountException("Amount must be greater than zero");
         }
 
-        RecordedEntry entry = ledger.record(new NewJournalEntry(ENTRY_TYPE, null,
+        RecordedEntry entry = ledger.record(new NewJournalEntry(ENTRY_TYPE, depositId.toString(),
                 ledger.settlementAccount(wallet.currency()), wallet.ledgerAccountId(), amount));
 
         // Read inside the same transaction, while the wallet's ledger account is still locked
-        return new DepositReceipt(entry.journalEntryId(), amount, ledger.balanceOf(wallet.ledgerAccountId()),
-                entry.postedAt());
+        Deposit deposit = new Deposit(depositId, command.userId(), wallet.id(), amount,
+                ledger.balanceOf(wallet.ledgerAccountId()), entry.journalEntryId(), entry.postedAt());
+        depositRepository.save(deposit);
+        return DepositReceipt.from(deposit);
     }
 }

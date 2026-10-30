@@ -81,13 +81,16 @@ class WalletController {
         }
     }
 
-    record MovementResponse(UUID transactionId, String type, String direction, MoneyResponse amount,
-            MoneyResponse balanceAfter, Instant createdAt) {
+    /**
+     * {@code operationId} is the id of the deposit or transfer that caused the movement.
+     */
+    record MovementResponse(UUID transactionId, String type, String operationId, String direction,
+            MoneyResponse amount, MoneyResponse balanceAfter, Instant createdAt) {
 
         static MovementResponse from(AccountMovement movement) {
-            return new MovementResponse(movement.journalEntryId(), movement.type(), movement.direction().name(),
-                    MoneyResponse.from(movement.amount()), MoneyResponse.from(movement.balanceAfter()),
-                    movement.postedAt());
+            return new MovementResponse(movement.journalEntryId(), movement.type(), movement.reference(),
+                    movement.direction().name(), MoneyResponse.from(movement.amount()),
+                    MoneyResponse.from(movement.balanceAfter()), movement.postedAt());
         }
     }
 
