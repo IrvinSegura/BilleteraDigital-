@@ -90,3 +90,25 @@ wallet:
   # Background jobs; every instance schedules them, see each job for how duplicates are avoided
   scheduling:
     enabled: true
+  rate-limit:
+    enabled: true
+    # First matching rule wins. Buckets refill gradually, e.g. 20 per minute is one every 3 seconds.
+    rules:
+      # Per address: slows credential stuffing and email enumeration across accounts (lockout covers one account)
+      - name: auth
+        methods: [POST]
+        paths: [/api/v1/auth/**]
+        key: ip
+        capacity: 20
+        period: 1m
+      - name: money-movement
+        methods: [POST]
+        paths: [/api/v1/transfers, /api/v1/wallets/*/deposits, /api/v1/wallets/*/withdrawals]
+        key: user
+        capacity: 30
+        period: 1m
+      - name: api
+        paths: [/api/**]
+        key: user
+        capacity: 300
+        period: 1m

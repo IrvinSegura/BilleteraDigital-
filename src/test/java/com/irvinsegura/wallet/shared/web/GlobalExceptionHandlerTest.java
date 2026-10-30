@@ -4,12 +4,14 @@ import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.irvinsegura.wallet.shared.domain.DomainException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -37,6 +39,15 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_FUNDS"))
                 .andExpect(jsonPath("$.detail").value("Not enough balance"))
+                .andExpect(jsonPath("$.correlationId").isNotEmpty());
+    }
+
+    @Test
+    void rateLimitBecomes429WithRetryAfterInWholeSeconds() throws Exception {
+        mockMvc.perform(get("/test/rate-limited"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "2"))
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
                 .andExpect(jsonPath("$.correlationId").isNotEmpty());
     }
 
@@ -89,6 +100,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test/access-denied")
         void accessDenied() {
             throw new AccessDeniedException("missing role");
+        }
+
+        @GetMapping("/test/rate-limited")
+        void rateLimited() {
+            throw new RateLimitExceededException(Duration.ofMillis(1500));
         }
 
         @PostMapping("/test/validated")

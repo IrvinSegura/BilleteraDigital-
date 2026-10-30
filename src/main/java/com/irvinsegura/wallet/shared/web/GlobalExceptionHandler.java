@@ -32,6 +32,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 ex.getCode());
     }
 
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException ex) {
+        ProblemDetail problem = Problems.create(HttpStatus.TOO_MANY_REQUESTS, "Too many requests",
+                "Request limit reached; retry in %d s".formatted(ex.retryAfterSeconds()), "RATE_LIMITED");
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
+                .body(problem);
+    }
+
     // Also reached from the security filter chain, which delegates its 401 and 403 responses here
     @ExceptionHandler(AuthenticationException.class)
     ProblemDetail handleAuthentication(AuthenticationException ex) {
