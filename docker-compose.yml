@@ -1,5 +1,6 @@
 # `docker compose up -d` starts only the database for running the app from the IDE.
 # `docker compose --profile app up -d --build` also builds and runs the application container.
+# `docker compose --profile observability up -d` adds Prometheus, Tempo and Grafana (http://localhost:3000).
 services:
   postgres:
     image: postgres:17-alpine
@@ -38,8 +39,53 @@ services:
       JWT_GENERATE_KEYS_IF_MISSING: "true"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Traces go to Tempo when the observability profile is running too
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8080:8080"
+    # The management port (8081) stays inside the compose network, where Prometheus scrapes it
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Keeps the trace ids attached to latency samples, so Grafana can jump from a slow request to its trace
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./docker/observability/prometheus:/etc/prometheus:ro
+    ports:
+      - "9090:9090"
+    # Lets Prometheus reach the app started from the IDE on Linux too (Docker Desktop resolves it on its own)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  tempo:
+    profiles: [observability]
+    image: grafana/tempo:2.10.10
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./docker/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+    ports:
+      # OTLP over HTTP, where the app started from the IDE sends its traces
+      - "4318:4318"
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:12.4.14
+    depends_on:
+      - prometheus
+      - tempo
+    environment:
+      # Local only: anonymous viewers can browse dashboards, the admin login still edits
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/digital-wallet.json
+    volumes:
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
 
 volumes:
   postgres-data:

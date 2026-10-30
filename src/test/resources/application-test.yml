@@ -20,3 +20,9 @@ wallet:
     daily-outgoing-limit:
       MXN: 500.00
       USD: 500.00
+  # Tests call the jobs' services directly, and every test logs in from the same address;
+  # RateLimitIntegrationTest turns limiting back on with its own rules
+  scheduling:
+    enabled: false
+  rate-limit:
+    enabled: false

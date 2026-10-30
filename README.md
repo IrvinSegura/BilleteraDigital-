@@ -3,13 +3,14 @@
 Digital wallet REST API with a double-entry ledger, built as a modular monolith with clean architecture.
 
 **Stack:** Java 21, Spring Boot 4.1, Spring Security (OAuth2 resource server, JWT RS256), PostgreSQL 17, Flyway,
-Spring Modulith, ArchUnit, Testcontainers, Docker.
+Spring Modulith, ArchUnit, Testcontainers, Docker, Micrometer (Prometheus, OpenTelemetry tracing), Bucket4j,
+Grafana and Tempo.
 
 ## Architecture
 
 ```
 com.irvinsegura.wallet
-├── shared          open kernel: Money, DomainException, error handling, correlation id
+├── shared          open kernel: Money, DomainException, error handling, correlation id, rate limiting
 ├── identity        users, authentication, tokens
 ├── accounts        wallets, status, limits
 ├── ledger          double-entry journal, balances, reconciliation
@@ -40,7 +41,8 @@ docker compose up -d
 ```
 
 - PostgreSQL listens on host port 5433 (`DB_PORT`) to avoid clashing with other local databases.
-- Health: http://localhost:8080/actuator/health
+- API: http://localhost:8080. Actuator has its own port, as in production:
+  http://localhost:8081/actuator/health and http://localhost:8081/actuator/prometheus
 - API docs (dev profile only): http://localhost:8080/swagger-ui.html
 
 ### Database users
@@ -153,6 +155,52 @@ Every `/api/v1/admin/**` endpoint requires the `ADMIN` role (`403 FORBIDDEN` oth
 wallet changes and every money movement are written to an append-only audit log through Spring Modulith's event
 outbox, so no entry is lost even if the app crashes right after an operation. See
 [ADR 0005](docs/adr/0005-audit-log-limits-and-admin.md).
+
+## Operations
+
+### Ledger reconciliation
+
+Every hour a job checks that each cached balance equals the sum of its postings, that every journal entry balances,
+and that per currency the platform's assets equal what it owes users. It reads one consistent snapshot, so it never
+blocks or misreads transfers in flight, and only one instance runs it at a time.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/reconciliations?limit=20` | Latest runs, newest first, with any discrepancies |
+| POST | `/api/v1/admin/reconciliations` | Run one now (`409 RECONCILIATION_IN_PROGRESS` if one is running) |
+
+Nightly jobs also delete expired refresh token families, idempotency keys older than 24 hours and daily usage rows
+older than 7 days.
+
+### Rate limits
+
+| Requests | Limit | Counted per |
+|---|---|---|
+| `POST /api/v1/auth/**` | 20 per minute | client address |
+| `POST` deposits, withdrawals, transfers | 30 per minute | user |
+| Any other `/api/**` request | 300 per minute | user |
+
+Over the limit the API answers `429 RATE_LIMITED` with `Retry-After` (seconds); limited responses include
+`X-RateLimit-Remaining`. Limits are configured in `wallet.rate-limit` and apply per instance. Behind a load balancer
+set `SERVER_FORWARD_HEADERS_STRATEGY=native` so limits see the client's address.
+
+### Metrics, traces and dashboards
+
+```bash
+docker compose --profile observability up -d
+```
+
+| Tool | URL | What it shows |
+|---|---|---|
+| Grafana | http://localhost:3000 | "Digital Wallet" dashboard: traffic, latency, money moved, rejections, ledger and outbox health, JVM and database pool (sign in as `admin`/`admin` to edit) |
+| Prometheus | http://localhost:9090 | Raw metrics and alert rules (`docker/observability/prometheus/alerts.yml`) |
+| Tempo | through Grafana, Explore > Tempo | Traces of each request down to every SQL statement |
+
+The app started from the IDE sends traces to Tempo on `localhost:4318` and is scraped on port 8081; while the stack
+is not running, trace exports only log warnings. Every response's `X-Correlation-Id` is also on its trace
+(`correlation.id`), and log lines show `[correlationId,traceId,spanId]`. In latency panels, dots are exemplars:
+click one to open that request's trace. Design and trade-offs:
+[ADR 0006](docs/adr/0006-reconciliation-rate-limiting-and-observability.md).
 
 ## Tests
 

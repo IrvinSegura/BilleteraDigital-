@@ -17,5 +17,6 @@ COPY --from=build /workspace/target/extracted/spring-boot-loader/ ./
 COPY --from=build /workspace/target/extracted/snapshot-dependencies/ ./
 COPY --from=build /workspace/target/extracted/application/ ./
 USER wallet
-EXPOSE 8080
+# 8080 serves the API; 8081 serves actuator (health probes, metrics) and must stay private
+EXPOSE 8080 8081
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "org.springframework.boot.loader.launch.JarLauncher"]

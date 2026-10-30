@@ -40,16 +40,34 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, info
+        # Health and info are public; the rest needs the ADMIN role unless served on a separate management port
+        include: health, info, prometheus, modulith
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      # Histogram buckets let Prometheus compute latency percentiles across instances
+      percentiles-histogram:
+        http.server.requests: true
+  tracing:
+    sampling:
+      probability: 0.1
 
 logging:
   pattern:
-    correlation: "[%X{correlationId:-}] "
+    correlation: "[%X{correlationId:-},%X{traceId:-},%X{spanId:-}] "
+
+# SQL spans in traces (datasource-micrometer): connection spans show time waiting for the pool, query spans show
+# row locks held by concurrent transfers. Parameter values are never recorded, they can hold personal data.
+jdbc:
+  includes: connection, query
+  datasource-proxy:
+    include-parameter-values: false
 
 wallet:
   identity:
@@ -67,9 +85,48 @@ wallet:
     admin:
       email: ${ADMIN_EMAIL:}
       password: ${ADMIN_PASSWORD:}
+    # Login families whose tokens have all expired
+    refresh-token-cleanup:
+      cron: "0 15 3 * * *"
   accounts:
     limit-zone: America/Mexico_City
     # Money that may leave a wallet per local day (withdrawals + transfers sent)
     daily-outgoing-limit:
       MXN: 50000.00
       USD: 3000.00
+    usage-cleanup:
+      cron: "0 30 3 * * *"
+      retention: 7d
+  transfers:
+    # Retries with the same key after this are treated as new requests
+    idempotency-key-cleanup:
+      cron: "0 45 3 * * *"
+      retention: 24h
+  ledger:
+    reconciliation:
+      cron: "0 5 * * * *"
+  # Background jobs; every instance schedules them, see each job for how duplicates are avoided
+  scheduling:
+    enabled: true
+  rate-limit:
+    enabled: true
+    # First matching rule wins. Buckets refill gradually, e.g. 20 per minute is one every 3 seconds.
+    rules:
+      # Per address: slows credential stuffing and email enumeration across accounts (lockout covers one account)
+      - name: auth
+        methods: [POST]
+        paths: [/api/v1/auth/**]
+        key: ip
+        capacity: 20
+        period: 1m
+      - name: money-movement
+        methods: [POST]
+        paths: [/api/v1/transfers, /api/v1/wallets/*/deposits, /api/v1/wallets/*/withdrawals]
+        key: user
+        capacity: 30
+        period: 1m
+      - name: api
+        paths: [/api/**]
+        key: user
+        capacity: 300
+        period: 1m

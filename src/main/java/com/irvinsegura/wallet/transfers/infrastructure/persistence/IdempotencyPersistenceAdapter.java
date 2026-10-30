@@ -3,6 +3,7 @@ package com.irvinsegura.wallet.transfers.infrastructure.persistence;
 import com.irvinsegura.wallet.transfers.domain.model.IdempotencyKeyTakenException;
 import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
 import com.irvinsegura.wallet.transfers.domain.port.IdempotencyRepository;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
@@ -37,5 +38,10 @@ class IdempotencyPersistenceAdapter implements IdempotencyRepository {
             }
             throw ex;
         }
+    }
+
+    @Override
+    public int deleteCreatedBefore(Instant cutoff) {
+        return jpaRepository.deleteCreatedBefore(cutoff);
     }
 }

@@ -11,9 +11,21 @@ springdoc:
     enabled: true
 
 management:
+  # Actuator on its own port, as in production, so the local Prometheus can scrape without a token
+  server:
+    port: ${MANAGEMENT_PORT:8081}
   endpoint:
     health:
       show-details: always
+  tracing:
+    sampling:
+      probability: 1.0
+  # Tempo from `docker compose --profile observability up -d`; while it is not running, exports fail with warnings
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
 
 wallet:
   identity:

@@ -15,4 +15,12 @@ public interface RefreshTokenRepository {
     void save(RefreshToken token);
 
     void revokeFamily(UUID familyId, Instant now);
+
+    /**
+     * Deletes the tokens of every family whose tokens have all expired. A family with any live token is kept whole,
+     * so presenting one of its rotated tokens is still detected as reuse.
+     *
+     * @return how many tokens were deleted
+     */
+    int deleteExpiredFamilies(Instant now);
 }
