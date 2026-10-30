@@ -4,7 +4,7 @@ Digital wallet REST API with a double-entry ledger, built as a modular monolith 
 
 **Stack:** Java 21, Spring Boot 4.1, Spring Security (OAuth2 resource server, JWT RS256), PostgreSQL 17, Flyway,
 Spring Modulith, ArchUnit, Testcontainers, Docker, Micrometer (Prometheus, OpenTelemetry tracing), Bucket4j,
-Grafana and Tempo.
+Grafana, Tempo, Spring Mail and Mailpit.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ com.irvinsegura.wallet
 ├── ledger          double-entry journal, balances, reconciliation
 ├── transfers       deposits, withdrawals, transfers (idempotent)
 ├── audit           append-only audit log (event listener)
-└── notifications   user notifications (event listener)
+└── notifications   in-app inbox and emails (event listener)
 ```
 
 Each module follows the same layout, and dependencies always point inward:
@@ -41,6 +41,7 @@ docker compose up -d
 ```
 
 - PostgreSQL listens on host port 5433 (`DB_PORT`) to avoid clashing with other local databases.
+- Mailpit catches every email the app sends (SMTP on 1025): read them at http://localhost:8025.
 - API: http://localhost:8080. Actuator has its own port, as in production:
   http://localhost:8081/actuator/health and http://localhost:8081/actuator/prometheus
 - API docs (dev profile only): http://localhost:8080/swagger-ui.html
@@ -50,7 +51,7 @@ docker compose up -d
 | User | Used by | Privileges |
 |---|---|---|
 | `wallet_owner` | Flyway | Owns the schema, runs migrations |
-| `wallet_app` | Application | Data access only; ledger and audit tables will be append-only (no UPDATE/DELETE) |
+| `wallet_app` | Application | Data access only; ledger, reconciliation and audit tables are append-only (no UPDATE/DELETE) |
 
 The app user is created by `docker/postgres/init` the first time the volume is initialized.
 To reset the database: `docker compose down -v`.
@@ -156,7 +157,34 @@ wallet changes and every money movement are written to an append-only audit log 
 outbox, so no entry is lost even if the app crashes right after an operation. See
 [ADR 0005](docs/adr/0005-audit-log-limits-and-admin.md).
 
+## Notifications
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/notifications?unreadOnly=false&page=0&size=20` | Your notifications, newest first |
+| GET | `/api/v1/notifications/unread-count` | `{"count": 3}`, cheap enough to poll for a badge |
+| POST | `/api/v1/notifications/{id}/read` | Mark one as read (`204`); repeating it keeps the first read time |
+| POST | `/api/v1/notifications/read-all` | Mark all as read (`204`) |
+
+Users are notified when they register, when failed logins lock their account, on every deposit, withdrawal and
+transfer (sent and received), and when an administrator freezes or unfreezes one of their wallets. Each one is also
+emailed. Notifications come from the event outbox like the audit log, so they appear a moment after the operation
+and are never lost; the email is a separate step, so a mail server outage only delays the email. Notifications are
+deleted after 90 days. See [ADR 0007](docs/adr/0007-notifications-and-event-retries.md).
+
+| Setting | Values |
+|---|---|
+| `wallet.notifications.email.delivery` | `smtp` (dev, tests and prod by default) or `log` (no email, only a log line) |
+| Production (`prod` profile) | `MAIL_HOST`, `MAIL_PORT` (587), `MAIL_USERNAME`, `MAIL_PASSWORD`, `EMAIL_FROM`; `EMAIL_DELIVERY=log` turns email off |
+
 ## Operations
+
+### Failed events
+
+If an event listener fails (audit, notifications or email), its publication stays in the outbox and a job retries
+it every 30 seconds once its wait has passed: 1 minute after the first failure, then 2, 4... up to 1 hour.
+Publications stuck for 10 minutes, e.g. because an instance died, are retried the same way. The
+`wallet_events_pending` metric and its alert show when something is stuck.
 
 ### Ledger reconciliation
 
@@ -169,8 +197,8 @@ blocks or misreads transfers in flight, and only one instance runs it at a time.
 | GET | `/api/v1/admin/reconciliations?limit=20` | Latest runs, newest first, with any discrepancies |
 | POST | `/api/v1/admin/reconciliations` | Run one now (`409 RECONCILIATION_IN_PROGRESS` if one is running) |
 
-Nightly jobs also delete expired refresh token families, idempotency keys older than 24 hours and daily usage rows
-older than 7 days.
+Nightly jobs also delete expired refresh token families, idempotency keys older than 24 hours, daily usage rows
+older than 7 days and notifications older than 90 days.
 
 ### Rate limits
 
@@ -208,7 +236,7 @@ click one to open that request's trace. Design and trade-offs:
 ./mvnw verify
 ```
 
-Integration tests start a real PostgreSQL with Testcontainers, so Docker must be running.
+Integration tests start a real PostgreSQL and Mailpit with Testcontainers, so Docker must be running.
 
 ## Error format
 
