@@ -14,6 +14,10 @@ import com.tngtech.archunit.lang.ArchRule;
 @AnalyzeClasses(packagesOf = WalletApplication.class, importOptions = ImportOption.DoNotIncludeTests.class)
 class CleanArchitectureTests {
 
+    // Layers are matched only inside the application, so e.g. an HTTP client from org.springframework.web is not
+    // mistaken for a web adapter
+    private static final String APP = "com.irvinsegura.wallet";
+
     @ArchTest
     static final ArchRule domainIsFrameworkFree = noClasses()
             .that().resideInAPackage("..domain..")
@@ -26,27 +30,27 @@ class CleanArchitectureTests {
     static final ArchRule domainDoesNotDependOnOuterLayers = noClasses()
             .that().resideInAPackage("..domain..")
             .should().dependOnClassesThat()
-            .resideInAnyPackage("..application..", "..infrastructure..", "..web..")
+            .resideInAnyPackage(APP + "..application..", APP + "..infrastructure..", APP + "..web..")
             .allowEmptyShould(true);
 
     @ArchTest
     static final ArchRule applicationDoesNotDependOnAdapters = noClasses()
             .that().resideInAPackage("..application..")
             .should().dependOnClassesThat()
-            .resideInAnyPackage("..infrastructure..", "..web..")
+            .resideInAnyPackage(APP + "..infrastructure..", APP + "..web..")
             .allowEmptyShould(true);
 
     @ArchTest
     static final ArchRule webDoesNotUseInfrastructure = noClasses()
             .that().resideInAPackage("..web..")
             .should().dependOnClassesThat()
-            .resideInAPackage("..infrastructure..")
+            .resideInAPackage(APP + "..infrastructure..")
             .allowEmptyShould(true);
 
     @ArchTest
     static final ArchRule infrastructureDoesNotUseWeb = noClasses()
             .that().resideInAPackage("..infrastructure..")
             .should().dependOnClassesThat()
-            .resideInAPackage("..web..")
+            .resideInAPackage(APP + "..web..")
             .allowEmptyShould(true);
 }
