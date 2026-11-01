@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.transfers.application;
 
 import com.irvinsegura.wallet.accounts.WalletInfo;
 import com.irvinsegura.wallet.accounts.Wallets;
+import com.irvinsegura.wallet.identity.UserDirectory;
 import com.irvinsegura.wallet.ledger.Ledger;
 import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
@@ -25,14 +26,16 @@ public class DepositService {
     static final String ENTRY_TYPE = "DEPOSIT";
 
     private final Wallets wallets;
+    private final UserDirectory users;
     private final Ledger ledger;
     private final DepositRepository depositRepository;
     private final IdempotentExecutor idempotentExecutor;
     private final ApplicationEventPublisher events;
 
-    DepositService(Wallets wallets, Ledger ledger, DepositRepository depositRepository,
+    DepositService(Wallets wallets, UserDirectory users, Ledger ledger, DepositRepository depositRepository,
             IdempotentExecutor idempotentExecutor, ApplicationEventPublisher events) {
         this.wallets = wallets;
+        this.users = users;
         this.ledger = ledger;
         this.depositRepository = depositRepository;
         this.idempotentExecutor = idempotentExecutor;
@@ -49,6 +52,8 @@ public class DepositService {
     }
 
     private DepositReceipt execute(UUID depositId, DepositCommand command) {
+        // Unverified accounts may add money; only a disabled one is rejected
+        users.authorizeDeposit(command.userId());
         // Locks the wallet so a freeze cannot commit while the money is coming in
         WalletInfo wallet = wallets.acceptIncoming(command.walletId(), command.userId());
         Money amount = Money.of(command.amount(), wallet.currency().getCurrencyCode());

@@ -28,8 +28,33 @@ public final class NotificationMessages {
         return Notification.create(NotificationType.ACCOUNT_LOCKED, userId + "@" + at, userId,
                 "Sign-in blocked after failed attempts",
                 ("Someone entered a wrong password for your account several times, so signing in is blocked until "
-                        + "%s. If it wasn't you, contact support.").formatted(TIME.format(lockedUntil)),
+                        + "%s. If it wasn't you, reset your password: that also unblocks your account.")
+                        .formatted(TIME.format(lockedUntil)),
                 null, at);
+    }
+
+    /**
+     * @param reset whether the user reset a forgotten password through an email link, instead of changing it
+     */
+    public static Notification passwordChanged(UUID userId, boolean reset, Instant at) {
+        return Notification.create(NotificationType.PASSWORD_CHANGED, userId + "@" + at, userId,
+                reset ? "Your password was reset" : "Your password was changed",
+                ("Your Digital Wallet password was %s and every other device was signed out. If it wasn't you, "
+                        + "reset your password right away and contact support.").formatted(reset ? "reset" : "changed"),
+                null, at);
+    }
+
+    public static Notification accountDisabled(UUID userId, Instant at) {
+        return Notification.create(NotificationType.ACCOUNT_DISABLED, userId + "@" + at, userId,
+                "Account disabled",
+                "Your account was disabled: you cannot sign in or move money until our team reviews it. "
+                        + "Contact support if you have questions.",
+                null, at);
+    }
+
+    public static Notification accountEnabled(UUID userId, Instant at) {
+        return Notification.create(NotificationType.ACCOUNT_ENABLED, userId + "@" + at, userId,
+                "Account active again", "You can sign in and move money again.", null, at);
     }
 
     public static Notification depositReceived(UUID depositId, UUID userId, Money amount, Instant at) {

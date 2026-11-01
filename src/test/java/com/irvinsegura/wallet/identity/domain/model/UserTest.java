@@ -68,6 +68,63 @@ class UserTest {
         assertThat(user.recordSuccessfulLogin()).isFalse();
     }
 
+    @Test
+    void newUsersAreActiveButUnverifiedWhileTheAdminIsVerified() {
+        assertThat(user.isActive()).isTrue();
+        assertThat(user.isEmailVerified()).isFalse();
+
+        User admin = User.registerAdmin(Email.of("admin@example.com"), "hash", "Administrator", NOW);
+        assertThat(admin.emailVerifiedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void verifyingAgainKeepsTheFirstTime() {
+        assertThat(user.verifyEmail(NOW)).isTrue();
+        assertThat(user.verifyEmail(NOW.plusSeconds(60))).isFalse();
+        assertThat(user.emailVerifiedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void changingThePasswordLiftsTheLockout() {
+        lock(user);
+
+        user.changePassword("new hash");
+
+        assertThat(user.passwordHash()).isEqualTo("new hash");
+        assertThat(user.isLockedAt(NOW)).isFalse();
+        assertThat(user.failedLoginAttempts()).isZero();
+    }
+
+    @Test
+    void unlockSaysWhetherTheAccountWasLocked() {
+        user.recordFailedLogin(NOW, POLICY);
+        assertThat(user.unlock(NOW)).isFalse();
+        assertThat(user.failedLoginAttempts()).isZero();
+
+        lock(user);
+        assertThat(user.unlock(NOW)).isTrue();
+        assertThat(user.isLockedAt(NOW)).isFalse();
+    }
+
+    @Test
+    void disableAndEnableReportWhetherTheStatusChanged() {
+        assertThat(user.disable()).isTrue();
+        assertThat(user.disable()).isFalse();
+        assertThat(user.isActive()).isFalse();
+
+        assertThat(user.enable()).isTrue();
+        assertThat(user.enable()).isFalse();
+        assertThat(user.status()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void theAdministratorCannotBeDisabled() {
+        User admin = User.registerAdmin(Email.of("admin@example.com"), "hash", "Administrator", NOW);
+
+        assertThatThrownBy(admin::disable).isInstanceOf(AdminCannotBeDisabledException.class);
+        assertThat(admin.isActive()).isTrue();
+    }
+
     private static void lock(User user) {
         for (int i = 0; i < POLICY.maxFailedAttempts(); i++) {
             user.recordFailedLogin(NOW, POLICY);

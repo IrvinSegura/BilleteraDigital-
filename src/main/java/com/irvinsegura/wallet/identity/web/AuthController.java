@@ -2,6 +2,8 @@ package com.irvinsegura.wallet.identity.web;
 
 import com.irvinsegura.wallet.identity.application.AuthTokens;
 import com.irvinsegura.wallet.identity.application.AuthenticationService;
+import com.irvinsegura.wallet.identity.application.EmailVerificationService;
+import com.irvinsegura.wallet.identity.application.PasswordService;
 import com.irvinsegura.wallet.identity.application.RegisterUserCommand;
 import com.irvinsegura.wallet.identity.application.RegistrationService;
 import com.irvinsegura.wallet.identity.application.UserProfile;
@@ -22,10 +24,15 @@ class AuthController {
 
     private final RegistrationService registrationService;
     private final AuthenticationService authenticationService;
+    private final EmailVerificationService emailVerificationService;
+    private final PasswordService passwordService;
 
-    AuthController(RegistrationService registrationService, AuthenticationService authenticationService) {
+    AuthController(RegistrationService registrationService, AuthenticationService authenticationService,
+            EmailVerificationService emailVerificationService, PasswordService passwordService) {
         this.registrationService = registrationService;
         this.authenticationService = authenticationService;
+        this.emailVerificationService = emailVerificationService;
+        this.passwordService = passwordService;
     }
 
     @PostMapping("/register")
@@ -48,6 +55,27 @@ class AuthController {
     @PostMapping("/logout")
     ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
         authenticationService.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    // The client page behind the emailed link posts the token here; with a GET, mail scanners that open links would
+    // verify addresses on their own
+    @PostMapping("/email-verification/confirm")
+    ResponseEntity<Void> confirmEmail(@Valid @RequestBody TokenRequest request) {
+        emailVerificationService.verify(request.token());
+        return ResponseEntity.noContent().build();
+    }
+
+    // Same answer whether or not the email is registered, so it cannot be used to find out who has an account
+    @PostMapping("/password-reset")
+    ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
+        passwordService.requestReset(request.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/password-reset/confirm")
+    ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        passwordService.resetPassword(request.token(), request.newPassword());
         return ResponseEntity.noContent().build();
     }
 
@@ -76,6 +104,26 @@ class AuthController {
         @Override
         public String toString() {
             return "RefreshTokenRequest[refreshToken=***]";
+        }
+    }
+
+    record TokenRequest(@NotBlank @Size(max = 128) String token) {
+
+        @Override
+        public String toString() {
+            return "TokenRequest[token=***]";
+        }
+    }
+
+    record PasswordResetRequest(@NotBlank @Size(max = 254) String email) {
+    }
+
+    record ResetPasswordRequest(@NotBlank @Size(max = 128) String token,
+            @NotBlank @Size(max = 128) String newPassword) {
+
+        @Override
+        public String toString() {
+            return "ResetPasswordRequest[token=***]";
         }
     }
 

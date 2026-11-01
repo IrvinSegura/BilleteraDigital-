@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,9 @@ class AdminWalletIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private MailpitContainer mailpit;
+
     private ApiClient api;
     private TestUser admin;
     private TestUser owner;
@@ -35,7 +39,7 @@ class AdminWalletIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
         admin = api.admin();
         owner = api.newUser();
         walletId = api.openWalletId(owner, "MXN");

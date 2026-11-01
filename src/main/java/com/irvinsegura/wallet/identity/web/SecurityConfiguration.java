@@ -47,7 +47,9 @@ class SecurityConfiguration {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
-                                "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                                "/api/v1/auth/refresh", "/api/v1/auth/logout",
+                                "/api/v1/auth/email-verification/confirm", "/api/v1/auth/password-reset",
+                                "/api/v1/auth/password-reset/confirm").permitAll()
                         // The management port is reachable only from inside the network (Prometheus, probes)
                         .requestMatchers(managementPort).permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()

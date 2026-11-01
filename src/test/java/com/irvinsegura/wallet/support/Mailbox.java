@@ -2,12 +2,17 @@ package com.irvinsegura.wallet.support;
 
 import com.jayway.jsonpath.JsonPath;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.web.client.RestClient;
 
 /**
  * Reads the emails Mailpit received, through its HTTP API.
  */
 public final class Mailbox {
+
+    // Account emails put the token in the link's fragment: https://app.../verify-email#token=...
+    private static final Pattern LINK_TOKEN = Pattern.compile("#token=([A-Za-z0-9_-]+)");
 
     private final RestClient client;
 
@@ -19,19 +24,38 @@ public final class Mailbox {
      * Subjects of the emails sent to that address, newest first.
      */
     public List<String> subjectsFor(String email) {
-        return JsonPath.read(search(email), "$.messages[*].Subject");
+        return JsonPath.read(search("to:\"" + email + "\""), "$.messages[*].Subject");
     }
 
     /**
      * Beginning of each email's text, newest first.
      */
     public List<String> snippetsFor(String email) {
-        return JsonPath.read(search(email), "$.messages[*].Snippet");
+        return JsonPath.read(search("to:\"" + email + "\""), "$.messages[*].Snippet");
     }
 
-    private String search(String email) {
+    /**
+     * Tokens of the links in the emails with that subject sent to that address, newest first.
+     */
+    public List<String> linkTokensFor(String email, String subject) {
+        List<String> ids = JsonPath.read(search("to:\"" + email + "\" subject:\"" + subject + "\""),
+                "$.messages[*].ID");
+        return ids.stream().map(this::linkToken).toList();
+    }
+
+    private String linkToken(String messageId) {
+        String text = JsonPath.read(client.get().uri("/api/v1/message/{id}", messageId).retrieve().body(String.class),
+                "$.Text");
+        Matcher matcher = LINK_TOKEN.matcher(text);
+        if (!matcher.find()) {
+            throw new AssertionError("No link token in email " + messageId);
+        }
+        return matcher.group(1);
+    }
+
+    private String search(String query) {
         return client.get()
-                .uri("/api/v1/search?query={query}", "to:\"" + email + "\"")
+                .uri("/api/v1/search?query={query}", query)
                 .retrieve()
                 .body(String.class);
     }

@@ -104,6 +104,11 @@ wallet:
     # Login families whose tokens have all expired
     refresh-token-cleanup:
       cron: "0 15 3 * * *"
+    # Email links work once; a reset link is short-lived because whoever holds it can take over the account
+    email-verification-ttl: 24h
+    password-reset-ttl: 30m
+    one-time-token-cleanup:
+      cron: "0 20 3 * * *"
   accounts:
     limit-zone: America/Mexico_City
     # Money that may leave a wallet per local day (withdrawals + transfers sent)
@@ -126,6 +131,8 @@ wallet:
       # smtp sends through spring.mail.*; log only writes a line, for environments without a mail server
       delivery: log
       from: Digital Wallet <no-reply@wallet.local>
+      # Client app that opens email links (verify the address, reset the password) and posts their token to the API
+      app-url: http://localhost:3000
     cleanup:
       cron: "0 0 4 * * *"
       retention: 90d
@@ -142,6 +149,19 @@ wallet:
     enabled: true
     # First matching rule wins. Buckets refill gradually, e.g. 20 per minute is one every 3 seconds.
     rules:
+      # Each one sends an email, so they are limited well below other auth requests to stop mail bombing
+      - name: password-reset
+        methods: [POST]
+        paths: [/api/v1/auth/password-reset]
+        key: ip
+        capacity: 5
+        period: 15m
+      - name: email-verification
+        methods: [POST]
+        paths: [/api/v1/users/me/email-verification]
+        key: user
+        capacity: 3
+        period: 15m
       # Per address: slows credential stuffing and email enumeration across accounts (lockout covers one account)
       - name: auth
         methods: [POST]

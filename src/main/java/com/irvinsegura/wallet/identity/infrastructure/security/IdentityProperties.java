@@ -16,7 +16,9 @@ public record IdentityProperties(
         @NotNull Duration refreshTokenTtl,
         @Valid @NotNull Lockout lockout,
         @Valid @NotNull Password password,
-        Admin admin) {
+        Admin admin,
+        @NotNull Duration emailVerificationTtl,
+        @NotNull Duration passwordResetTtl) {
 
     /**
      * Key locations accept any Spring resource, e.g. {@code file:/run/secrets/jwt-private.pem}. The private key

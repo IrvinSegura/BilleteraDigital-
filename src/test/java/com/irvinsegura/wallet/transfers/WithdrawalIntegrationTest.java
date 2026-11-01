@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -37,13 +38,16 @@ class WithdrawalIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private MailpitContainer mailpit;
+
     private ApiClient api;
     private TestUser user;
     private String walletId;
 
     @BeforeEach
     void setUp() throws Exception {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
         user = api.newUser();
         walletId = api.openWalletId(user, "MXN");
         api.deposit(user, walletId, "1000.00").andExpect(status().isCreated());

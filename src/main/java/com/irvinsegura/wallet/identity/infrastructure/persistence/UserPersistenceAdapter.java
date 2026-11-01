@@ -5,6 +5,9 @@ import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyRegisteredExcept
 import com.irvinsegura.wallet.identity.domain.model.User;
 import com.irvinsegura.wallet.identity.domain.model.UserId;
 import com.irvinsegura.wallet.identity.domain.port.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import java.util.Optional;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -17,6 +20,9 @@ class UserPersistenceAdapter implements UserRepository {
 
     private final UserJpaRepository jpaRepository;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     UserPersistenceAdapter(UserJpaRepository jpaRepository) {
         this.jpaRepository = jpaRepository;
     }
@@ -24,6 +30,27 @@ class UserPersistenceAdapter implements UserRepository {
     @Override
     public Optional<User> findById(UserId id) {
         return jpaRepository.findById(id.value()).map(UserEntity::toDomain);
+    }
+
+    @Override
+    public Optional<User> findByIdForUpdate(UserId id) {
+        return findLocked(id, LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    // PESSIMISTIC_READ is SELECT ... FOR SHARE in PostgreSQL
+    @Override
+    public Optional<User> findByIdForShare(UserId id) {
+        return findLocked(id, LockModeType.PESSIMISTIC_READ);
+    }
+
+    private Optional<User> findLocked(UserId id, LockModeType lockMode) {
+        UserEntity entity = entityManager.find(UserEntity.class, id.value());
+        if (entity == null) {
+            return Optional.empty();
+        }
+        // Refreshing under the lock reloads the row, even if an older copy was read earlier in this transaction
+        entityManager.refresh(entity, lockMode);
+        return Optional.of(entity.toDomain());
     }
 
     @Override

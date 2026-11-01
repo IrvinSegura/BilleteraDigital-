@@ -2,10 +2,12 @@ package com.irvinsegura.wallet.notifications.application;
 
 import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.accounts.Wallets;
+import com.irvinsegura.wallet.identity.PasswordChanged;
 import com.irvinsegura.wallet.identity.UserContact;
 import com.irvinsegura.wallet.identity.UserDirectory;
 import com.irvinsegura.wallet.identity.UserLockedOut;
 import com.irvinsegura.wallet.identity.UserRegistered;
+import com.irvinsegura.wallet.identity.UserStatusChanged;
 import com.irvinsegura.wallet.notifications.domain.model.NotificationMessages;
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
@@ -48,6 +50,20 @@ class NotificationEventListener {
     void on(UserLockedOut event) {
         notifications.deliver(NotificationMessages.accountLocked(event.userId(), event.lockedUntil(),
                 event.occurredAt()));
+    }
+
+    // Also emailed: if someone else changed it, the owner learns it from a channel the attacker does not control
+    @ApplicationModuleListener
+    void on(PasswordChanged event) {
+        notifications.deliver(NotificationMessages.passwordChanged(event.userId(), "RESET".equals(event.method()),
+                event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(UserStatusChanged event) {
+        notifications.deliver("DISABLED".equals(event.status())
+                ? NotificationMessages.accountDisabled(event.userId(), event.occurredAt())
+                : NotificationMessages.accountEnabled(event.userId(), event.occurredAt()));
     }
 
     @ApplicationModuleListener

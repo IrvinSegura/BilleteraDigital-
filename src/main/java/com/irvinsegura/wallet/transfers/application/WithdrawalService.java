@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.transfers.application;
 
 import com.irvinsegura.wallet.accounts.WalletInfo;
 import com.irvinsegura.wallet.accounts.Wallets;
+import com.irvinsegura.wallet.identity.UserDirectory;
 import com.irvinsegura.wallet.ledger.Ledger;
 import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
@@ -25,14 +26,16 @@ public class WithdrawalService {
     static final String ENTRY_TYPE = "WITHDRAWAL";
 
     private final Wallets wallets;
+    private final UserDirectory users;
     private final Ledger ledger;
     private final WithdrawalRepository withdrawalRepository;
     private final IdempotentExecutor idempotentExecutor;
     private final ApplicationEventPublisher events;
 
-    WithdrawalService(Wallets wallets, Ledger ledger, WithdrawalRepository withdrawalRepository,
+    WithdrawalService(Wallets wallets, UserDirectory users, Ledger ledger, WithdrawalRepository withdrawalRepository,
             IdempotentExecutor idempotentExecutor, ApplicationEventPublisher events) {
         this.wallets = wallets;
+        this.users = users;
         this.ledger = ledger;
         this.withdrawalRepository = withdrawalRepository;
         this.idempotentExecutor = idempotentExecutor;
@@ -49,6 +52,8 @@ public class WithdrawalService {
     }
 
     private WithdrawalReceipt execute(UUID withdrawalId, WithdrawalCommand command) {
+        // Locks the account until commit: a disable in progress is waited for and wins
+        users.authorizeOutgoingMoney(command.userId());
         WalletInfo wallet = wallets.getOwnedWallet(command.walletId(), command.userId());
         Money amount = Money.of(command.amount(), wallet.currency().getCurrencyCode());
         if (amount.isZero()) {

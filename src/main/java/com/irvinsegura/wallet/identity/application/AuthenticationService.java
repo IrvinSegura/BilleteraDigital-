@@ -1,28 +1,22 @@
 package com.irvinsegura.wallet.identity.application;
 
-import com.irvinsegura.wallet.identity.UserLockedOut;
-import com.irvinsegura.wallet.identity.domain.model.AccessToken;
+import com.irvinsegura.wallet.identity.AccountDisabledException;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
 import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.InvalidCredentialsException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidEmailException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidRefreshTokenException;
-import com.irvinsegura.wallet.identity.domain.model.LockoutPolicy;
 import com.irvinsegura.wallet.identity.domain.model.RefreshToken;
-import com.irvinsegura.wallet.identity.domain.model.RefreshTokenPolicy;
 import com.irvinsegura.wallet.identity.domain.model.User;
-import com.irvinsegura.wallet.identity.domain.port.AccessTokenIssuer;
 import com.irvinsegura.wallet.identity.domain.port.PasswordHasher;
 import com.irvinsegura.wallet.identity.domain.port.RefreshTokenRepository;
 import com.irvinsegura.wallet.identity.domain.port.UserRepository;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,24 +31,20 @@ public class AuthenticationService {
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordHasher passwordHasher;
-    private final AccessTokenIssuer accessTokenIssuer;
-    private final LockoutPolicy lockoutPolicy;
-    private final RefreshTokenPolicy refreshTokenPolicy;
-    private final ApplicationEventPublisher events;
+    private final PasswordVerifier passwordVerifier;
+    private final SessionTokens sessionTokens;
     private final Clock clock;
     // Checked against when the email is unknown, so both failure paths take the same time and leak nothing
     private final String unknownUserHash;
 
     AuthenticationService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
-            PasswordHasher passwordHasher, AccessTokenIssuer accessTokenIssuer, LockoutPolicy lockoutPolicy,
-            RefreshTokenPolicy refreshTokenPolicy, ApplicationEventPublisher events, Clock clock) {
+            PasswordHasher passwordHasher, PasswordVerifier passwordVerifier, SessionTokens sessionTokens,
+            Clock clock) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordHasher = passwordHasher;
-        this.accessTokenIssuer = accessTokenIssuer;
-        this.lockoutPolicy = lockoutPolicy;
-        this.refreshTokenPolicy = refreshTokenPolicy;
-        this.events = events;
+        this.passwordVerifier = passwordVerifier;
+        this.sessionTokens = sessionTokens;
         this.clock = clock;
         this.unknownUserHash = passwordHasher.hash(UUID.randomUUID().toString());
     }
@@ -72,21 +62,18 @@ public class AuthenticationService {
         if (user.isLockedAt(now)) {
             throw new AccountLockedException(user.lockedUntil());
         }
-        if (!passwordHasher.matches(password, user.passwordHash())) {
-            user.recordFailedLogin(now, lockoutPolicy);
-            userRepository.save(user);
-            if (user.isLockedAt(now)) {
-                log.warn("User {} locked until {} after {} failed logins", user.id(), user.lockedUntil(),
-                        user.failedLoginAttempts());
-                // Committed with the failed attempt thanks to noRollbackFor
-                events.publishEvent(new UserLockedOut(user.id().value(), user.lockedUntil(), now));
-            }
+        // A wrong password is committed as a failed attempt (and maybe a lockout) thanks to noRollbackFor
+        if (!passwordVerifier.verify(user, password, now)) {
             throw new InvalidCredentialsException();
+        }
+        // Only after the password matched, so the status of an account is not revealed to someone guessing
+        if (!user.isActive()) {
+            throw new AccountDisabledException();
         }
         if (user.recordSuccessfulLogin()) {
             userRepository.save(user);
         }
-        return issueTokens(user, UUID.randomUUID(), now);
+        return sessionTokens.startSession(user, now);
     }
 
     // The family revocation on token reuse must be stored even though the refresh fails
@@ -105,10 +92,13 @@ public class AuthenticationService {
         if (current.isExpiredAt(now)) {
             throw new InvalidRefreshTokenException();
         }
-        User user = userRepository.findById(current.userId()).orElseThrow(InvalidRefreshTokenException::new);
+        // Disabling an account revokes its sessions; checking again covers a refresh racing with the disable
+        User user = userRepository.findById(current.userId())
+                .filter(User::isActive)
+                .orElseThrow(InvalidRefreshTokenException::new);
         current.revoke(now);
         refreshTokenRepository.save(current);
-        return issueTokens(user, current.familyId(), now);
+        return sessionTokens.issue(user, current.familyId(), now);
     }
 
     /**
@@ -127,17 +117,5 @@ public class AuthenticationService {
         } catch (InvalidEmailException e) {
             return Optional.empty();
         }
-    }
-
-    private AuthTokens issueTokens(User user, UUID familyId, Instant now) {
-        AccessToken accessToken = accessTokenIssuer.issue(user, now);
-        RefreshToken.Issued refreshToken =
-                RefreshToken.issue(user.id(), familyId, now, refreshTokenPolicy.timeToLive());
-        refreshTokenRepository.save(refreshToken.token());
-        return new AuthTokens(
-                accessToken.value(),
-                Duration.between(now, accessToken.expiresAt()),
-                refreshToken.rawValue(),
-                refreshTokenPolicy.timeToLive());
     }
 }

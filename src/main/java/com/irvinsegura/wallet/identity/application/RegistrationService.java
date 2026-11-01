@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.identity.application;
 
+import com.irvinsegura.wallet.identity.EmailVerificationRequested;
 import com.irvinsegura.wallet.identity.UserRegistered;
 import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyRegisteredException;
@@ -40,6 +41,7 @@ public class RegistrationService {
                 clock.instant());
         userRepository.save(user);
         events.publishEvent(new UserRegistered(user.id().value(), user.role().name(), user.createdAt()));
+        events.publishEvent(new EmailVerificationRequested(user.id().value(), user.createdAt()));
         return UserProfile.from(user);
     }
 }

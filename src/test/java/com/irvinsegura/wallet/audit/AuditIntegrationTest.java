@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import com.jayway.jsonpath.JsonPath;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +34,9 @@ class AuditIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private MailpitContainer mailpit;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private ApiClient api;
@@ -40,7 +44,7 @@ class AuditIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
         admin = api.admin();
     }
 
@@ -75,7 +79,8 @@ class AuditIntegrationTest {
                     {"email": "%s", "password": "wrong password 123"}""".formatted(user.email())));
         }
 
-        assertEventually(() -> assertThat(actionsFor(userId)).containsExactly("USER_LOCKED_OUT", "USER_REGISTERED"));
+        assertEventually(() -> assertThat(actionsFor(userId))
+                .containsExactly("USER_LOCKED_OUT", "USER_EMAIL_VERIFIED", "USER_REGISTERED"));
         String body = api.get(admin, "/api/v1/admin/audit-events?targetId=" + userId)
                 .andReturn().getResponse().getContentAsString();
         assertThat((Object) JsonPath.read(body, "$.items[0].actorId")).isNull();
