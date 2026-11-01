@@ -11,6 +11,7 @@ import com.irvinsegura.wallet.identity.UserStatusChanged;
 import com.irvinsegura.wallet.notifications.domain.model.NotificationMessages;
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
+import com.irvinsegura.wallet.transfers.DepositRejected;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
 import com.irvinsegura.wallet.transfers.WithdrawalCompleted;
 import java.util.Currency;
@@ -69,6 +70,12 @@ class NotificationEventListener {
     @ApplicationModuleListener
     void on(DepositCompleted event) {
         notifications.deliver(NotificationMessages.depositReceived(event.depositId(), event.userId(),
+                Money.ofMinor(event.amountMinor(), event.currency()), event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(DepositRejected event) {
+        notifications.deliver(NotificationMessages.depositRejected(event.depositId(), event.userId(),
                 Money.ofMinor(event.amountMinor(), event.currency()), event.occurredAt()));
     }
 

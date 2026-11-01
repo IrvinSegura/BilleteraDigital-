@@ -57,14 +57,21 @@ class WalletDepositIntegrationTest {
                 .andExpect(jsonPath("$.balance.currency").value("MXN"))
                 .andExpect(jsonPath("$.status").value("ACTIVE")), "$.id");
 
+        // The simulated provider confirms the payment at once, so the deposit completes within the request
         String depositId = read(api.deposit(user, walletId, "100.50")
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Idempotent-Replayed", "false"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.closedAt").isNotEmpty())
                 .andExpect(jsonPath("$.amount.amount").value("100.50"))
                 .andExpect(jsonPath("$.balance.amount").value("100.50")), "$.id");
         api.deposit(user, walletId, "20").andExpect(jsonPath("$.balance.amount").value("120.50"));
 
         assertThat(api.balance(user, walletId)).isEqualTo("120.50");
+        api.get(user, "/api/v1/wallets/" + walletId + "/deposits/" + depositId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.balance.amount").value("100.50"));
         api.get(user, "/api/v1/wallets/" + walletId + "/movements?page=1&size=1")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].type").value("DEPOSIT"))
@@ -102,6 +109,10 @@ class WalletDepositIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("WALLET_NOT_FOUND"));
         api.deposit(stranger, walletId, "10.00").andExpect(status().isNotFound());
+        String depositId = read(api.deposit(owner, walletId, "10.00"), "$.id");
+        api.get(stranger, "/api/v1/wallets/" + walletId + "/deposits/" + depositId)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("DEPOSIT_NOT_FOUND"));
     }
 
     @Test

@@ -136,6 +136,29 @@ wallet:
     cleanup:
       cron: "0 0 4 * * *"
       retention: 90d
+  payments:
+    # simulated pays every checkout the moment it opens, so deposits complete within the request; stripe sends the
+    # payer to Stripe Checkout (test keys work) and completes the deposit when Stripe's webhook confirms the payment
+    provider: ${PAYMENT_PROVIDER:simulated}
+    checkout-ttl: 30m
+    # Client app page Stripe sends the payer back to, with ?payment=<deposit id>&result=success|cancel
+    return-url: http://localhost:3000/deposits/return
+    stripe:
+      api-key: ${STRIPE_API_KEY:}
+      webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+      api-url: https://api.stripe.com
+      signature-tolerance: 5m
+      connect-timeout: 5s
+      read-timeout: 20s
+    # Settles payments whose webhook never arrived by asking the provider
+    stale:
+      check-interval: 5m
+      abandon-after: 10m
+      expiry-grace: 10m
+    # Stripe redelivers an event for up to 3 days; ids are kept well past that so a late copy is still skipped
+    webhook-event-cleanup:
+      cron: "0 50 3 * * *"
+      retention: 30d
   # Failed event listeners (audit, notifications, emails) are retried with exponential backoff
   events:
     retry:
@@ -162,6 +185,13 @@ wallet:
         key: user
         capacity: 3
         period: 15m
+      # Unauthenticated, so counted per address; Stripe sends bursts from a few addresses and retries what is refused
+      - name: payment-webhooks
+        methods: [POST]
+        paths: [/api/v1/payments/webhooks/**]
+        key: ip
+        capacity: 600
+        period: 1m
       # Per address: slows credential stuffing and email enumeration across accounts (lockout covers one account)
       - name: auth
         methods: [POST]

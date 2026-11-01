@@ -53,3 +53,7 @@ wallet:
       from: ${EMAIL_FROM}
       # Public address of the client app, e.g. https://wallet.example.com; email links point to it
       app-url: ${APP_URL}
+  payments:
+    # stripe needs STRIPE_API_KEY and STRIPE_WEBHOOK_SECRET; simulated is only for demo deployments without real money
+    provider: ${PAYMENT_PROVIDER:stripe}
+    return-url: ${APP_URL}/deposits/return

@@ -62,6 +62,15 @@ public final class NotificationMessages {
                 "Deposit received", "%s was added to your wallet.".formatted(amount), depositId, at);
     }
 
+    // The rule that refused the money is not named: a freeze or a disable is explained by its own notification
+    public static Notification depositRejected(UUID depositId, UUID userId, Money amount, Instant at) {
+        return Notification.create(NotificationType.DEPOSIT_REJECTED, depositId.toString(), userId,
+                "Deposit refunded",
+                ("Your payment of %s went through, but your wallet cannot receive money right now, so it was not "
+                        + "added. The payment is being refunded to your card.").formatted(amount),
+                depositId, at);
+    }
+
     public static Notification withdrawalSent(UUID withdrawalId, UUID userId, Money amount, Instant at) {
         return Notification.create(NotificationType.WITHDRAWAL_SENT, withdrawalId.toString(), userId,
                 "Withdrawal sent", "%s is on its way to your bank account.".formatted(amount), withdrawalId, at);

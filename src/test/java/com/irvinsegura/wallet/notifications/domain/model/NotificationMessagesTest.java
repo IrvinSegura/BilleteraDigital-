@@ -93,4 +93,13 @@ class NotificationMessagesTest {
         assertThat(email.subject()).isEqualTo("Welcome to Digital Wallet");
         assertThat(email.body()).startsWith("Hi Ana López,").contains(welcome.body());
     }
+
+    @Test
+    void aRefusedDepositSaysTheMoneyIsComingBackWithoutSayingWhy() {
+        Notification notification = NotificationMessages.depositRejected(UUID.randomUUID(), UUID.randomUUID(),
+                Money.ofMinor(4000, "MXN"), AT);
+
+        assertThat(notification.title()).isEqualTo("Deposit refunded");
+        assertThat(notification.body()).contains("40.00 MXN", "refunded").doesNotContain("frozen", "disabled");
+    }
 }

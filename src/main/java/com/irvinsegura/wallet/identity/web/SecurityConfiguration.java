@@ -50,6 +50,8 @@ class SecurityConfiguration {
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout",
                                 "/api/v1/auth/email-verification/confirm", "/api/v1/auth/password-reset",
                                 "/api/v1/auth/password-reset/confirm").permitAll()
+                        // Called by the payment provider, which proves itself with a signature instead of a token
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/webhooks/**").permitAll()
                         // The management port is reachable only from inside the network (Prometheus, probes)
                         .requestMatchers(managementPort).permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()

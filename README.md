@@ -4,7 +4,7 @@ Digital wallet REST API with a double-entry ledger, built as a modular monolith 
 
 **Stack:** Java 21, Spring Boot 4.1, Spring Security (OAuth2 resource server, JWT RS256), PostgreSQL 17, Flyway,
 Spring Modulith, ArchUnit, Testcontainers, Docker, Micrometer (Prometheus, OpenTelemetry tracing), Bucket4j,
-Grafana, Tempo, Spring Mail and Mailpit.
+Grafana, Tempo, Spring Mail and Mailpit, Stripe Checkout.
 
 ## Architecture
 
@@ -15,6 +15,7 @@ com.irvinsegura.wallet
 ├── accounts        wallets, status, limits
 ├── ledger          double-entry journal, balances, reconciliation
 ├── transfers       deposits, withdrawals, transfers (idempotent)
+├── payments        payment provider (Stripe or simulated), checkout, webhooks, refunds
 ├── audit           append-only audit log (event listener)
 └── notifications   in-app inbox and emails (event listener)
 ```
@@ -121,12 +122,38 @@ Mount both files as secrets and point `JWT_PRIVATE_KEY_LOCATION` and `JWT_PUBLIC
 | GET | `/api/v1/wallets` | Your wallets with their balances |
 | GET | `/api/v1/wallets/{id}` | One wallet; other users' wallets answer `404` |
 | GET | `/api/v1/wallets/{id}/movements?page=0&size=20` | Statement, newest first, with the balance after each movement |
-| POST | `/api/v1/wallets/{id}/deposits` | Simulated top-up (`{"amount": 100.50}`); needs `Idempotency-Key` |
+| POST | `/api/v1/wallets/{id}/deposits` | Top-up through the payment provider (`{"amount": 100.50}`); needs `Idempotency-Key` |
+| GET | `/api/v1/wallets/{id}/deposits/{depositId}` | A deposit and its status, to follow it after the checkout |
 | POST | `/api/v1/wallets/{id}/withdrawals` | Simulated payout to the user's bank; needs `Idempotency-Key` |
 
 All of them require a bearer token. Amounts are returned as decimal strings (`{"amount": "100.50", "currency":
 "MXN"}`) so clients never lose cents to floating point. Money is recorded in a double-entry ledger: see
 [ADR 0003](docs/adr/0003-double-entry-ledger.md).
+
+### Deposits and the payment provider
+
+A deposit is credited only once the payment provider confirms the money, chosen with `PAYMENT_PROVIDER`:
+
+- `simulated` (default outside production): the payment succeeds at once, so the deposit answers `201` with
+  `"status": "COMPLETED"` and the new balance.
+- `stripe`: the deposit answers `202` with `"status": "PENDING"` and a `checkoutUrl` on Stripe Checkout (cards only),
+  valid for 30 minutes. Stripe sends the payer back to `wallet.payments.return-url` with `?payment=<deposit id>`, and
+  the client polls the deposit until it becomes `COMPLETED`, `EXPIRED` or `REJECTED`.
+
+Stripe confirms payments with a signed webhook to `POST /api/v1/payments/webhooks/stripe`; each event is applied once
+however often it arrives, and a job asks Stripe about checkouts whose webhook never came. If the wallet was frozen or
+the account disabled while the payer was paying, the deposit is `REJECTED`, nothing is credited and the payment is
+refunded automatically. If Stripe cannot be reached the deposit fails with `503 PAYMENT_PROVIDER_UNAVAILABLE`.
+
+To try Stripe locally with test keys and the [Stripe CLI](https://docs.stripe.com/stripe-cli):
+
+```bash
+stripe listen --forward-to localhost:8080/api/v1/payments/webhooks/stripe
+```
+
+Then start the app with `PAYMENT_PROVIDER=stripe`, `STRIPE_API_KEY=sk_test_...` and `STRIPE_WEBHOOK_SECRET` set to
+the `whsec_...` value the command printed, open the `checkoutUrl` of a deposit and pay with card `4242 4242 4242 4242`.
+Design: [ADR 0009](docs/adr/0009-payment-provider-deposits.md).
 
 ## Transfers
 
@@ -195,7 +222,8 @@ disabled.
 
 Users are notified when they register, when failed logins lock their account, when their password is changed or
 reset, when an administrator disables or enables their account, on every deposit, withdrawal and transfer (sent and
-received), and when an administrator freezes or unfreezes one of their wallets. Each one is also
+received), when a paid deposit is refunded because the wallet could not receive it, and when an administrator freezes
+or unfreezes one of their wallets. Each one is also
 emailed. Notifications come from the event outbox like the audit log, so they appear a moment after the operation
 and are never lost; the email is a separate step, so a mail server outage only delays the email. Notifications are
 deleted after 90 days. See [ADR 0007](docs/adr/0007-notifications-and-event-retries.md).
@@ -205,6 +233,7 @@ deleted after 90 days. See [ADR 0007](docs/adr/0007-notifications-and-event-retr
 | `wallet.notifications.email.delivery` | `smtp` (dev, tests and prod by default) or `log` (no email, only a log line) |
 | `wallet.notifications.email.app-url` | Client app that opens the links in verification and reset emails |
 | Production (`prod` profile) | `MAIL_HOST`, `MAIL_PORT` (587), `MAIL_USERNAME`, `MAIL_PASSWORD`, `EMAIL_FROM`, `APP_URL`; `EMAIL_DELIVERY=log` turns email off |
+| Payments in production | `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET` (signing secret of the webhook endpoint in the Stripe dashboard); `PAYMENT_PROVIDER=simulated` for demos without real money |
 
 ## Operations
 
@@ -227,7 +256,8 @@ blocks or misreads transfers in flight, and only one instance runs it at a time.
 | POST | `/api/v1/admin/reconciliations` | Run one now (`409 RECONCILIATION_IN_PROGRESS` if one is running) |
 
 Nightly jobs also delete expired refresh token families, expired email link tokens, idempotency keys older than
-24 hours, daily usage rows older than 7 days and notifications older than 90 days.
+24 hours, daily usage rows older than 7 days, notifications older than 90 days and payment webhook ids older than
+30 days. Every 5 minutes a job settles payments whose provider webhook never arrived.
 
 ### Rate limits
 
@@ -237,6 +267,7 @@ Nightly jobs also delete expired refresh token families, expired email link toke
 | `POST /api/v1/users/me/email-verification` | 3 per 15 minutes | user |
 | Any other `POST /api/v1/auth/**` | 20 per minute | client address |
 | `POST` deposits, withdrawals, transfers | 30 per minute | user |
+| `POST /api/v1/payments/webhooks/**` | 600 per minute | client address |
 | Any other `/api/**` request | 300 per minute | user |
 
 Over the limit the API answers `429 RATE_LIMITED` with `Retry-After` (seconds); limited responses include
