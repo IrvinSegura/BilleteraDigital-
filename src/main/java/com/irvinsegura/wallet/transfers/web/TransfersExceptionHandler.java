@@ -1,7 +1,10 @@
 package com.irvinsegura.wallet.transfers.web;
 
+import com.irvinsegura.wallet.shared.domain.DomainException;
 import com.irvinsegura.wallet.shared.web.Problems;
+import com.irvinsegura.wallet.transfers.domain.model.DepositNotFoundException;
 import com.irvinsegura.wallet.transfers.domain.model.TransferNotFoundException;
+import com.irvinsegura.wallet.transfers.domain.model.WithdrawalNotFoundException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -16,8 +19,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class TransfersExceptionHandler {
 
-    @ExceptionHandler(TransferNotFoundException.class)
-    ProblemDetail handleTransferNotFound(TransferNotFoundException ex) {
+    @ExceptionHandler({TransferNotFoundException.class, DepositNotFoundException.class,
+            WithdrawalNotFoundException.class})
+    ProblemDetail handleNotFound(DomainException ex) {
         return Problems.create(HttpStatus.NOT_FOUND, "Not found", ex.getMessage(), ex.getCode());
     }
 }
