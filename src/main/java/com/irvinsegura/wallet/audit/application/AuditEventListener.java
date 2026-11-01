@@ -13,6 +13,7 @@ import com.irvinsegura.wallet.identity.UserStatusChanged;
 import com.irvinsegura.wallet.identity.UserUnlocked;
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
+import com.irvinsegura.wallet.transfers.DepositRejected;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
 import com.irvinsegura.wallet.transfers.WithdrawalCompleted;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -98,6 +99,14 @@ class AuditEventListener {
         auditLog.append(AuditEntry.of("DEPOSIT_COMPLETED", event.depositId().toString(), event.occurredAt(),
                 event.userId(), WALLET, event.walletId(),
                 "deposit %s: %s".formatted(event.depositId(), money(event.amountMinor(), event.currency()))));
+    }
+
+    // Paid but not credited, so support can answer "where is my money" with the refund under way
+    @ApplicationModuleListener
+    void on(DepositRejected event) {
+        auditLog.append(AuditEntry.of("DEPOSIT_REJECTED", event.depositId().toString(), event.occurredAt(),
+                null, WALLET, event.walletId(), "deposit %s: %s refunded, %s".formatted(event.depositId(),
+                        money(event.amountMinor(), event.currency()), event.reason())));
     }
 
     @ApplicationModuleListener

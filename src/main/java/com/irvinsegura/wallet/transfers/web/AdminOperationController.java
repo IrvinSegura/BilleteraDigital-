@@ -3,6 +3,7 @@ package com.irvinsegura.wallet.transfers.web;
 import com.irvinsegura.wallet.shared.web.MoneyResponse;
 import com.irvinsegura.wallet.transfers.application.OperationAdministrationService;
 import com.irvinsegura.wallet.transfers.domain.model.Deposit;
+import com.irvinsegura.wallet.transfers.domain.model.DepositStatus;
 import com.irvinsegura.wallet.transfers.domain.model.Transfer;
 import com.irvinsegura.wallet.transfers.domain.model.Withdrawal;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -34,11 +35,8 @@ class AdminOperationController {
     }
 
     @GetMapping("/deposits/{depositId}")
-    AdminWalletOperationResponse deposit(@PathVariable UUID depositId) {
-        Deposit deposit = administrationService.getDeposit(depositId);
-        return new AdminWalletOperationResponse(deposit.id(), deposit.userId(), deposit.walletId(),
-                MoneyResponse.from(deposit.amount()), MoneyResponse.from(deposit.balanceAfter()),
-                deposit.journalEntryId(), deposit.createdAt());
+    AdminDepositResponse deposit(@PathVariable UUID depositId) {
+        return AdminDepositResponse.from(administrationService.getDeposit(depositId));
     }
 
     @GetMapping("/withdrawals/{withdrawalId}")
@@ -61,7 +59,20 @@ class AdminOperationController {
         }
     }
 
-    // A deposit or a withdrawal: both touch one wallet and keep the balance it left behind
+    // Ledger fields are null until the deposit is completed; the payment shares the deposit's id
+    record AdminDepositResponse(UUID id, UUID userId, UUID walletId, DepositStatus status, MoneyResponse amount,
+            MoneyResponse balanceAfter, UUID journalEntryId, String rejectionReason, Instant createdAt,
+            Instant closedAt) {
+
+        static AdminDepositResponse from(Deposit deposit) {
+            return new AdminDepositResponse(deposit.id(), deposit.userId(), deposit.walletId(), deposit.status(),
+                    MoneyResponse.from(deposit.amount()),
+                    deposit.balanceAfter() == null ? null : MoneyResponse.from(deposit.balanceAfter()),
+                    deposit.journalEntryId(), deposit.rejectionReason(), deposit.createdAt(), deposit.closedAt());
+        }
+    }
+
+    // A withdrawal touches one wallet and keeps the balance it left behind
     record AdminWalletOperationResponse(UUID id, UUID userId, UUID walletId, MoneyResponse amount,
             MoneyResponse balanceAfter, UUID journalEntryId, Instant createdAt) {
     }
