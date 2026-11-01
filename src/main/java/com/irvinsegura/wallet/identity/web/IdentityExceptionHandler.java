@@ -1,7 +1,10 @@
 package com.irvinsegura.wallet.identity.web;
 
+import com.irvinsegura.wallet.identity.AccountDisabledException;
+import com.irvinsegura.wallet.identity.EmailNotVerifiedException;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
 import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyRegisteredException;
+import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyVerifiedException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidCredentialsException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidRefreshTokenException;
 import com.irvinsegura.wallet.identity.domain.model.UserNotFoundException;
@@ -19,7 +22,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Identity errors that are not plain business rule violations (422). Runs before the global handler.
+ * Identity errors that are not plain business rule violations (422). Runs before the global handler and applies to
+ * every controller, so other modules calling {@code UserDirectory} get the same responses.
  */
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -30,9 +34,15 @@ class IdentityExceptionHandler {
         return Problems.create(HttpStatus.UNAUTHORIZED, "Authentication failed", ex.getMessage(), ex.getCode());
     }
 
-    @ExceptionHandler(EmailAlreadyRegisteredException.class)
-    ProblemDetail handleEmailAlreadyRegistered(EmailAlreadyRegisteredException ex) {
+    @ExceptionHandler({EmailAlreadyRegisteredException.class, EmailAlreadyVerifiedException.class})
+    ProblemDetail handleConflict(DomainException ex) {
         return Problems.create(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode());
+    }
+
+    // Authenticated, but this account is not allowed to do it
+    @ExceptionHandler({AccountDisabledException.class, EmailNotVerifiedException.class})
+    ProblemDetail handleAccountNotAllowed(DomainException ex) {
+        return Problems.create(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage(), ex.getCode());
     }
 
     @ExceptionHandler(UserNotFoundException.class)

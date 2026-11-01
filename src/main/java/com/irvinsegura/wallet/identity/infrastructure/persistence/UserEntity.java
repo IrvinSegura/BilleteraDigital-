@@ -4,6 +4,7 @@ import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.Role;
 import com.irvinsegura.wallet.identity.domain.model.User;
 import com.irvinsegura.wallet.identity.domain.model.UserId;
+import com.irvinsegura.wallet.identity.domain.model.UserStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -34,6 +35,13 @@ class UserEntity {
     @Column(nullable = false, length = 20)
     private Role role;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private UserStatus status;
+
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
     @Column(name = "failed_login_attempts", nullable = false)
     private int failedLoginAttempts;
 
@@ -56,6 +64,8 @@ class UserEntity {
         entity.passwordHash = user.passwordHash();
         entity.fullName = user.fullName();
         entity.role = user.role();
+        entity.status = user.status();
+        entity.emailVerifiedAt = user.emailVerifiedAt();
         entity.failedLoginAttempts = user.failedLoginAttempts();
         entity.lockedUntil = user.lockedUntil();
         entity.createdAt = user.createdAt();
@@ -64,7 +74,7 @@ class UserEntity {
     }
 
     User toDomain() {
-        return User.restore(new UserId(id), new Email(email), passwordHash, fullName, role, failedLoginAttempts,
-                lockedUntil, createdAt, version);
+        return User.restore(new UserId(id), new Email(email), passwordHash, fullName, role, status, emailVerifiedAt,
+                failedLoginAttempts, lockedUntil, createdAt, version);
     }
 }

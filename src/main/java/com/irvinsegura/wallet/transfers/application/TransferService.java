@@ -69,6 +69,8 @@ public class TransferService {
     }
 
     private TransferView execute(UUID transferId, TransferCommand command) {
+        // Locks the sender's account until commit: a disable in progress is waited for and wins
+        users.authorizeOutgoingMoney(command.userId());
         WalletInfo source = wallets.getOwnedWallet(command.sourceWalletId(), command.userId());
         Money amount = Money.of(command.amount(), source.currency().getCurrencyCode());
         if (amount.isZero()) {

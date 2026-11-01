@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.identity.infrastructure.security;
 
 import com.irvinsegura.wallet.identity.domain.model.LockoutPolicy;
+import com.irvinsegura.wallet.identity.domain.model.OneTimeTokenPolicy;
 import com.irvinsegura.wallet.identity.domain.model.RefreshTokenPolicy;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -18,5 +19,10 @@ class IdentityConfiguration {
     @Bean
     RefreshTokenPolicy refreshTokenPolicy(IdentityProperties properties) {
         return new RefreshTokenPolicy(properties.refreshTokenTtl());
+    }
+
+    @Bean
+    OneTimeTokenPolicy oneTimeTokenPolicy(IdentityProperties properties) {
+        return new OneTimeTokenPolicy(properties.emailVerificationTtl(), properties.passwordResetTtl());
     }
 }

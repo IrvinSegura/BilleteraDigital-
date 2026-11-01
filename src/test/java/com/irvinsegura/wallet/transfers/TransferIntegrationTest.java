@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +37,9 @@ class TransferIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private MailpitContainer mailpit;
+
     private ApiClient api;
     private TestUser alice;
     private TestUser bob;
@@ -44,7 +48,7 @@ class TransferIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
         alice = api.newUser();
         bob = api.newUser();
         aliceWallet = api.openWalletId(alice, "MXN");

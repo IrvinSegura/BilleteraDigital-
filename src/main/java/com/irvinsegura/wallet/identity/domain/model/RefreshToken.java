@@ -1,13 +1,7 @@
 package com.irvinsegura.wallet.identity.domain.model;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -16,9 +10,6 @@ import java.util.UUID;
  * issues a new one in the same family. Only the SHA-256 hash is stored, so a database leak exposes no usable token.
  */
 public class RefreshToken {
-
-    private static final SecureRandom RANDOM = new SecureRandom();
-    private static final int TOKEN_BYTES = 32;
 
     private final UUID id;
     private final UserId userId;
@@ -45,9 +36,7 @@ public class RefreshToken {
      * Creates a token in the given family. The raw value is returned only here and is never stored.
      */
     public static Issued issue(UserId userId, UUID familyId, Instant now, Duration ttl) {
-        byte[] bytes = new byte[TOKEN_BYTES];
-        RANDOM.nextBytes(bytes);
-        String rawValue = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        String rawValue = OpaqueTokens.generate();
         RefreshToken token = new RefreshToken(
                 UUID.randomUUID(), userId, familyId, hash(rawValue), now, now.plus(ttl), null, null);
         return new Issued(token, rawValue);
@@ -62,12 +51,7 @@ public class RefreshToken {
     }
 
     public static String hash(String rawValue) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(rawValue.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is required on every Java platform", e);
-        }
+        return OpaqueTokens.hash(rawValue);
     }
 
     public boolean isRevoked() {

@@ -9,6 +9,17 @@ public interface UserRepository {
 
     Optional<User> findById(UserId id);
 
+    /**
+     * Loads the user with an exclusive row lock, taken by changes to the account (password, status, lockout).
+     */
+    Optional<User> findByIdForUpdate(UserId id);
+
+    /**
+     * Loads the user with a shared row lock, taken by operations that move money. Several can hold it at once, but
+     * disabling the account waits for them and they wait for a disable in progress.
+     */
+    Optional<User> findByIdForShare(UserId id);
+
     Optional<User> findByEmail(Email email);
 
     /**

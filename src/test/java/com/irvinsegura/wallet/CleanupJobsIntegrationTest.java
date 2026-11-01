@@ -3,6 +3,7 @@ package com.irvinsegura.wallet;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.irvinsegura.wallet.accounts.application.OutgoingUsageCleanupService;
+import com.irvinsegura.wallet.identity.application.OneTimeTokenCleanupService;
 import com.irvinsegura.wallet.identity.application.RefreshTokenCleanupService;
 import com.irvinsegura.wallet.notifications.application.NotificationCleanupService;
 import com.irvinsegura.wallet.transfers.application.IdempotencyKeyCleanupService;
@@ -43,6 +44,9 @@ class CleanupJobsIntegrationTest {
 
     @Autowired
     private NotificationCleanupService notificationCleanup;
+
+    @Autowired
+    private OneTimeTokenCleanupService oneTimeTokenCleanup;
 
     @Test
     void idempotencyKeysAreDeletedAfterTheRetentionPeriod() {
@@ -92,6 +96,20 @@ class CleanupJobsIntegrationTest {
     }
 
     @Test
+    void emailLinkTokensAreDeletedOnceExpired() {
+        UUID userId = insertUser();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        insertOneTimeToken(userId, "RESET_PASSWORD", now.minus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(30)));
+        insertOneTimeToken(userId, "VERIFY_EMAIL", now.minus(Duration.ofHours(1)), now.plus(Duration.ofHours(23)));
+
+        assertThat(oneTimeTokenCleanup.deleteExpiredTokens()).isGreaterThanOrEqualTo(1);
+
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT purpose FROM one_time_tokens WHERE user_id = ?", String.class, userId))
+                .containsExactly("VERIFY_EMAIL");
+    }
+
+    @Test
     void notificationsAreDeletedAfterTheRetentionPeriodReadOrNot() {
         UUID userId = UUID.randomUUID();
         insertNotification(userId, "old", Instant.now().minus(Duration.ofDays(91)));
@@ -129,6 +147,14 @@ class CleanupJobsIntegrationTest {
                         VALUES (?, ?, 'hash', 'Cleanup Test', 'USER', now(), 0)""",
                 userId, "cleanup-" + userId + "@example.com");
         return userId;
+    }
+
+    private void insertOneTimeToken(UUID userId, String purpose, Instant createdAt, Instant expiresAt) {
+        jdbcTemplate.update("""
+                        INSERT INTO one_time_tokens (id, user_id, purpose, token_hash, created_at, expires_at)
+                        VALUES (?, ?, ?, ?, ?, ?)""",
+                UUID.randomUUID(), userId, purpose, UUID.randomUUID().toString(), Timestamp.from(createdAt),
+                Timestamp.from(expiresAt));
     }
 
     private void insertRefreshToken(UUID userId, UUID familyId, Instant issuedAt, Instant expiresAt) {

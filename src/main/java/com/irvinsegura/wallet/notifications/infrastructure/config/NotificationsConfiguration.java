@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.notifications.infrastructure.config;
 
+import com.irvinsegura.wallet.notifications.domain.model.AccountEmails;
 import com.irvinsegura.wallet.notifications.domain.port.EmailSender;
 import com.irvinsegura.wallet.notifications.infrastructure.email.LoggingEmailSender;
 import com.irvinsegura.wallet.notifications.infrastructure.email.SmtpEmailSender;
@@ -32,5 +33,10 @@ class NotificationsConfiguration {
     @ConditionalOnProperty(name = DELIVERY, havingValue = "log")
     EmailSender loggingEmailSender() {
         return new LoggingEmailSender();
+    }
+
+    @Bean
+    AccountEmails accountEmails(NotificationsProperties properties) {
+        return new AccountEmails(properties.email().appUrl());
     }
 }

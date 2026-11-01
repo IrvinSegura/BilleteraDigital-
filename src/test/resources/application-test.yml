@@ -25,6 +25,7 @@ wallet:
     email:
       delivery: smtp
       from: Digital Wallet <no-reply@wallet.test>
+      app-url: https://app.wallet.test
   accounts:
     # Low limits so tests can reach them without huge deposits
     daily-outgoing-limit:

@@ -25,6 +25,12 @@ interface RefreshTokenJpaRepository extends JpaRepository<RefreshTokenEntity, UU
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
+            update RefreshTokenEntity t set t.revokedAt = :now, t.version = t.version + 1
+            where t.userId = :userId and t.revokedAt is null""")
+    int revokeAllForUser(@Param("userId") UUID userId, @Param("now") Instant now);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
             delete from RefreshTokenEntity t
             where t.familyId in (
                 select f.familyId from RefreshTokenEntity f group by f.familyId having max(f.expiresAt) <= :now)""")

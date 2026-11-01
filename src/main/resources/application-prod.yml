@@ -51,3 +51,5 @@ wallet:
       # smtp needs MAIL_HOST; log turns email off (e.g. a demo deployment without a mail server)
       delivery: ${EMAIL_DELIVERY:smtp}
       from: ${EMAIL_FROM}
+      # Public address of the client app, e.g. https://wallet.example.com; email links point to it
+      app-url: ${APP_URL}

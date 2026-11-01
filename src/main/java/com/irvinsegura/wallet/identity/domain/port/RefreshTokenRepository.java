@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.identity.domain.port;
 
 import com.irvinsegura.wallet.identity.domain.model.RefreshToken;
+import com.irvinsegura.wallet.identity.domain.model.UserId;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +16,11 @@ public interface RefreshTokenRepository {
     void save(RefreshToken token);
 
     void revokeFamily(UUID familyId, Instant now);
+
+    /**
+     * Ends every session of the user, e.g. after a password change or when the account is disabled.
+     */
+    void revokeAllForUser(UserId userId, Instant now);
 
     /**
      * Deletes the tokens of every family whose tokens have all expired. A family with any live token is kept whole,

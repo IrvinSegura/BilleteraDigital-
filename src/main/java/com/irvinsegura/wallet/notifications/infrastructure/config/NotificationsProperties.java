@@ -11,9 +11,10 @@ import org.springframework.validation.annotation.Validated;
 public record NotificationsProperties(@NotNull @Valid Email email) {
 
     /**
-     * @param from sender address, optionally with a display name, e.g. {@code Digital Wallet <no-reply@example.com>}
+     * @param from   sender address, optionally with a display name, e.g. {@code Digital Wallet <no-reply@example.com>}
+     * @param appUrl base address of the client app that opens the links in account emails
      */
-    public record Email(@NotNull Delivery delivery, @NotBlank String from) {
+    public record Email(@NotNull Delivery delivery, @NotBlank String from, @NotBlank String appUrl) {
     }
 
     public enum Delivery {

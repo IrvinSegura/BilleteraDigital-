@@ -1,10 +1,13 @@
 package com.irvinsegura.wallet.identity.application;
 
+import com.irvinsegura.wallet.identity.AccountDisabledException;
+import com.irvinsegura.wallet.identity.EmailNotVerifiedException;
 import com.irvinsegura.wallet.identity.UserContact;
 import com.irvinsegura.wallet.identity.UserDirectory;
 import com.irvinsegura.wallet.identity.UserReference;
 import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.InvalidEmailException;
+import com.irvinsegura.wallet.identity.domain.model.User;
 import com.irvinsegura.wallet.identity.domain.model.UserId;
 import com.irvinsegura.wallet.identity.domain.port.UserRepository;
 import java.util.Optional;
@@ -39,5 +42,28 @@ class UserDirectoryService implements UserDirectory {
     public Optional<UserContact> findContact(UUID userId) {
         return userRepository.findById(new UserId(userId))
                 .map(user -> new UserContact(user.id().value(), user.email().value(), user.fullName()));
+    }
+
+    @Override
+    @Transactional
+    public void authorizeOutgoingMoney(UUID userId) {
+        if (!lockForMoneyMovement(userId).isEmailVerified()) {
+            throw new EmailNotVerifiedException();
+        }
+    }
+
+    @Override
+    @Transactional
+    public void authorizeDeposit(UUID userId) {
+        lockForMoneyMovement(userId);
+    }
+
+    private User lockForMoneyMovement(UUID userId) {
+        // Users are never deleted, so a missing one can only be a token for an account that never existed here
+        User user = userRepository.findByIdForShare(new UserId(userId)).orElseThrow(AccountDisabledException::new);
+        if (!user.isActive()) {
+            throw new AccountDisabledException();
+        }
+        return user;
     }
 }

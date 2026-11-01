@@ -1,10 +1,14 @@
 package com.irvinsegura.wallet.support;
 
+import static com.irvinsegura.wallet.support.Eventually.assertEventually;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -15,18 +19,34 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  */
 public final class ApiClient {
 
-    private static final String PASSWORD = "correct horse battery staple";
+    public static final String PASSWORD = "correct horse battery staple";
+    public static final String VERIFY_EMAIL_SUBJECT = "Confirm your email address";
+    public static final String RESET_PASSWORD_SUBJECT = "Reset your password";
     // Created at startup from application-test.yml
     private static final String ADMIN_EMAIL = "admin@wallet.test";
     private static final String ADMIN_PASSWORD = "admin-test-password";
 
     private final MockMvc mockMvc;
+    private final Mailbox mailbox;
 
-    public ApiClient(MockMvc mockMvc) {
+    public ApiClient(MockMvc mockMvc, MailpitContainer mailpit) {
         this.mockMvc = mockMvc;
+        this.mailbox = new Mailbox(mailpit);
     }
 
+    /**
+     * A signed-in user who confirmed their email through the emailed link, so they can move money.
+     */
     public TestUser newUser() throws Exception {
+        TestUser user = newUnverifiedUser();
+        verifyEmail(user);
+        return user;
+    }
+
+    /**
+     * A signed-in user who has not confirmed their email: they can receive money but not send or withdraw it.
+     */
+    public TestUser newUnverifiedUser() throws Exception {
         String email = "user-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -34,6 +54,35 @@ public final class ApiClient {
                                 .formatted(email, PASSWORD)))
                 .andExpect(status().isCreated());
         return login(email, PASSWORD);
+    }
+
+    public void verifyEmail(TestUser user) throws Exception {
+        confirmEmail(awaitLinkToken(user.email(), VERIFY_EMAIL_SUBJECT, 1)).andExpect(status().isNoContent());
+    }
+
+    public ResultActions confirmEmail(String token) throws Exception {
+        return mockMvc.perform(post("/api/v1/auth/email-verification/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"token": "%s"}""".formatted(token)));
+    }
+
+    /**
+     * Waits until at least {@code count} emails with that subject reached the address and returns the newest link's
+     * token. Emails are sent by event listeners after commit, so they arrive a moment after the request.
+     */
+    public String awaitLinkToken(String email, String subject, int count) throws Exception {
+        AtomicReference<String> newest = new AtomicReference<>();
+        assertEventually(() -> {
+            List<String> tokens = mailbox.linkTokensFor(email, subject);
+            assertThat(tokens).hasSizeGreaterThanOrEqualTo(count);
+            newest.set(tokens.getFirst());
+        });
+        return newest.get();
+    }
+
+    public Mailbox mailbox() {
+        return mailbox;
     }
 
     public TestUser admin() throws Exception {
@@ -45,7 +94,7 @@ public final class ApiClient {
                         .content("""
                                 {"email": "%s", "password": "%s"}""".formatted(email, password)))
                 .andExpect(status().isOk());
-        return new TestUser(email, read(login, "$.accessToken"));
+        return new TestUser(email, read(login, "$.accessToken"), read(login, "$.refreshToken"));
     }
 
     public ResultActions postJson(TestUser user, String path, String json) throws Exception {
@@ -121,7 +170,7 @@ public final class ApiClient {
         return UUID.randomUUID().toString();
     }
 
-    public record TestUser(String email, String token) {
+    public record TestUser(String email, String token, String refreshToken) {
 
         public String bearer() {
             return "Bearer " + token;

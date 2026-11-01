@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -36,11 +37,14 @@ class WalletDepositIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private MailpitContainer mailpit;
+
     private ApiClient api;
 
     @BeforeEach
     void setUp() {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
     }
 
     @Test

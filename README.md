@@ -80,10 +80,25 @@ Add this VM option to the run configuration, pointing to any existing folder wit
 | POST | `/api/v1/auth/login` | public | Get an access token (15 min) and a refresh token (7 days) |
 | POST | `/api/v1/auth/refresh` | public | Swap a refresh token for a new pair; the old one stops working |
 | POST | `/api/v1/auth/logout` | public | Revoke the refresh token and every token rotated from it |
-| GET | `/api/v1/users/me` | bearer | Profile of the authenticated user |
+| POST | `/api/v1/auth/email-verification/confirm` | public | Confirm the email with the token from the emailed link (`204`) |
+| POST | `/api/v1/auth/password-reset` | public | Email a reset link (`{"email": "..."}`); always `202`, registered or not |
+| POST | `/api/v1/auth/password-reset/confirm` | public | Set a new password with the link's token; ends every session and lifts a lockout |
+| GET | `/api/v1/users/me` | bearer | Profile of the authenticated user, with `status` and `emailVerified` |
+| POST | `/api/v1/users/me/email-verification` | bearer | Send a new verification link (`202`); older links stop working |
+| POST | `/api/v1/users/me/password` | bearer | Change the password (`currentPassword`, `newPassword`); ends every other session and returns new tokens |
 
 Every other endpoint requires `Authorization: Bearer <accessToken>`. Five failed logins in a row lock the account
 for 15 minutes. Design and trade-offs: [ADR 0002](docs/adr/0002-jwt-access-and-rotating-refresh-tokens.md).
+
+### Email verification and password recovery
+
+Registering emails a link to confirm the address. Until the user follows it they can sign in, open wallets, deposit
+and receive money, but withdrawals and transfers answer `403 EMAIL_NOT_VERIFIED`. Links point to the client app
+(`wallet.notifications.email.app-url`, `APP_URL` in production) with the token in the fragment
+(`/verify-email#token=...`, `/reset-password#token=...`); the app posts the token to the endpoints above.
+Each link works once and only the newest one works: verification links last 24 hours, reset links 30 minutes. Only a
+hash of each token is stored, and tokens are never written to the event outbox. Locally, open the emails in Mailpit
+at http://localhost:8025. Design: [ADR 0008](docs/adr/0008-account-lifecycle.md).
 
 ### Signing keys
 
@@ -147,15 +162,27 @@ Details in [ADR 0004](docs/adr/0004-idempotency-keys.md).
 
 | Method | Path | Description |
 |---|---|---|
+| POST | `/api/v1/admin/users/search` | Find a user by email (`{"email": "..."}`): status, verification, lockout |
+| GET | `/api/v1/admin/users/{id}` | The same, by user id |
+| GET | `/api/v1/admin/users/{id}/wallets` | The user's wallets with balance and status |
+| POST | `/api/v1/admin/users/{id}/unlock` | Lift a lockout before it expires |
+| POST | `/api/v1/admin/users/{id}/disable` | Block login and every money movement, end all sessions (`{"reason": "..."}`, required) |
+| POST | `/api/v1/admin/users/{id}/enable` | Allow them again (`{"reason": "..."}`) |
 | GET | `/api/v1/admin/wallets/{id}` | Any wallet with owner, balance and status |
 | POST | `/api/v1/admin/wallets/{id}/freeze` | Block all money movement (`{"reason": "..."}`, required) |
 | POST | `/api/v1/admin/wallets/{id}/unfreeze` | Allow it again (`{"reason": "..."}`) |
+| GET | `/api/v1/admin/transfers/{id}`, `/deposits/{id}`, `/withdrawals/{id}` | Any operation, with its ledger entry |
 | GET | `/api/v1/admin/audit-events?targetId=&actorId=&page=&size=` | Audit log, newest first |
 
-Every `/api/v1/admin/**` endpoint requires the `ADMIN` role (`403 FORBIDDEN` otherwise). Registrations, lockouts,
-wallet changes and every money movement are written to an append-only audit log through Spring Modulith's event
-outbox, so no entry is lost even if the app crashes right after an operation. See
-[ADR 0005](docs/adr/0005-audit-log-limits-and-admin.md).
+Every `/api/v1/admin/**` endpoint requires the `ADMIN` role (`403 FORBIDDEN` otherwise). Registrations, email
+verifications, password changes and reset requests, lockouts and unlocks, account and wallet status changes and every
+money movement are written to an append-only audit log through Spring Modulith's event outbox, so no entry is lost
+even if the app crashes right after an operation. See [ADR 0005](docs/adr/0005-audit-log-limits-and-admin.md).
+
+A disabled account answers `403 ACCOUNT_DISABLED` on login, and its refresh tokens stop working. Access tokens issued
+before stay valid for reads until they expire (at most 15 minutes), but every deposit, withdrawal or transfer checks
+the account under a lock, so none goes through after the disable commits. The administrator account cannot be
+disabled.
 
 ## Notifications
 
@@ -166,8 +193,9 @@ outbox, so no entry is lost even if the app crashes right after an operation. Se
 | POST | `/api/v1/notifications/{id}/read` | Mark one as read (`204`); repeating it keeps the first read time |
 | POST | `/api/v1/notifications/read-all` | Mark all as read (`204`) |
 
-Users are notified when they register, when failed logins lock their account, on every deposit, withdrawal and
-transfer (sent and received), and when an administrator freezes or unfreezes one of their wallets. Each one is also
+Users are notified when they register, when failed logins lock their account, when their password is changed or
+reset, when an administrator disables or enables their account, on every deposit, withdrawal and transfer (sent and
+received), and when an administrator freezes or unfreezes one of their wallets. Each one is also
 emailed. Notifications come from the event outbox like the audit log, so they appear a moment after the operation
 and are never lost; the email is a separate step, so a mail server outage only delays the email. Notifications are
 deleted after 90 days. See [ADR 0007](docs/adr/0007-notifications-and-event-retries.md).
@@ -175,7 +203,8 @@ deleted after 90 days. See [ADR 0007](docs/adr/0007-notifications-and-event-retr
 | Setting | Values |
 |---|---|
 | `wallet.notifications.email.delivery` | `smtp` (dev, tests and prod by default) or `log` (no email, only a log line) |
-| Production (`prod` profile) | `MAIL_HOST`, `MAIL_PORT` (587), `MAIL_USERNAME`, `MAIL_PASSWORD`, `EMAIL_FROM`; `EMAIL_DELIVERY=log` turns email off |
+| `wallet.notifications.email.app-url` | Client app that opens the links in verification and reset emails |
+| Production (`prod` profile) | `MAIL_HOST`, `MAIL_PORT` (587), `MAIL_USERNAME`, `MAIL_PASSWORD`, `EMAIL_FROM`, `APP_URL`; `EMAIL_DELIVERY=log` turns email off |
 
 ## Operations
 
@@ -197,14 +226,16 @@ blocks or misreads transfers in flight, and only one instance runs it at a time.
 | GET | `/api/v1/admin/reconciliations?limit=20` | Latest runs, newest first, with any discrepancies |
 | POST | `/api/v1/admin/reconciliations` | Run one now (`409 RECONCILIATION_IN_PROGRESS` if one is running) |
 
-Nightly jobs also delete expired refresh token families, idempotency keys older than 24 hours, daily usage rows
-older than 7 days and notifications older than 90 days.
+Nightly jobs also delete expired refresh token families, expired email link tokens, idempotency keys older than
+24 hours, daily usage rows older than 7 days and notifications older than 90 days.
 
 ### Rate limits
 
 | Requests | Limit | Counted per |
 |---|---|---|
-| `POST /api/v1/auth/**` | 20 per minute | client address |
+| `POST /api/v1/auth/password-reset` | 5 per 15 minutes | client address |
+| `POST /api/v1/users/me/email-verification` | 3 per 15 minutes | user |
+| Any other `POST /api/v1/auth/**` | 20 per minute | client address |
 | `POST` deposits, withdrawals, transfers | 30 per minute | user |
 | Any other `/api/**` request | 300 per minute | user |
 

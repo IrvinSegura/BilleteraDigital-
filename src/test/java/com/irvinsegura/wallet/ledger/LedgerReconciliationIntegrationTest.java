@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import com.jayway.jsonpath.JsonPath;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,9 @@ class LedgerReconciliationIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private MailpitContainer mailpit;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -54,7 +58,7 @@ class LedgerReconciliationIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
         admin = api.admin();
     }
 

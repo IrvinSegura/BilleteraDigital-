@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,9 +37,12 @@ class RateLimitIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private MailpitContainer mailpit;
+
     @Test
     void depositsBeyondTheLimitAreRejectedPerUserWithoutMovingMoney() throws Exception {
-        ApiClient api = new ApiClient(mockMvc);
+        ApiClient api = new ApiClient(mockMvc, mailpit);
         TestUser alice = api.newUser();
         TestUser bob = api.newUser();
         String aliceWallet = api.openWalletId(alice, "MXN");

@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,9 +28,12 @@ class ObservabilityIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private MailpitContainer mailpit;
+
     @Test
     void metricsAreForAdministratorsOnly() throws Exception {
-        ApiClient api = new ApiClient(mockMvc);
+        ApiClient api = new ApiClient(mockMvc, mailpit);
 
         mockMvc.perform(get("/actuator/prometheus")).andExpect(status().isUnauthorized());
         api.get(api.newUser(), "/actuator/prometheus").andExpect(status().isForbidden());
@@ -39,7 +43,7 @@ class ObservabilityIntegrationTest {
 
     @Test
     void exposesBusinessAndOperationalMetrics() throws Exception {
-        ApiClient api = new ApiClient(mockMvc);
+        ApiClient api = new ApiClient(mockMvc, mailpit);
         TestUser user = api.newUser();
         String walletId = api.openWalletId(user, "MXN");
         api.deposit(user, walletId, "25.00").andExpect(status().isCreated());

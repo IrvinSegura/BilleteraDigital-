@@ -17,8 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Creates the administrator account. Without email verification anyone could register an address first, so an
- * existing regular user is never promoted: the admin account must be created by the system itself.
+ * Creates the administrator account. An existing regular user is never promoted, even with a verified email: granting
+ * the role to an account someone signed up for must be a deliberate step, not a side effect of configuration.
  */
 @Service
 public class AdminProvisioningService {

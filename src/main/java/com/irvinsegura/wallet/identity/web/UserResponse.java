@@ -4,10 +4,11 @@ import com.irvinsegura.wallet.identity.application.UserProfile;
 import java.time.Instant;
 import java.util.UUID;
 
-record UserResponse(UUID id, String email, String fullName, String role, Instant createdAt) {
+record UserResponse(UUID id, String email, String fullName, String role, String status, boolean emailVerified,
+        Instant createdAt) {
 
     static UserResponse from(UserProfile profile) {
-        return new UserResponse(profile.id(), profile.email(), profile.fullName(), profile.role(),
-                profile.createdAt());
+        return new UserResponse(profile.id(), profile.email(), profile.fullName(), profile.role(), profile.status(),
+                profile.emailVerified(), profile.createdAt());
     }
 }

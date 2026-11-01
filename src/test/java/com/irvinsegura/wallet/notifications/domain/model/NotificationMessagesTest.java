@@ -52,6 +52,28 @@ class NotificationMessagesTest {
     }
 
     @Test
+    void accountEmailsCarryTheTokenInTheLinkFragment() {
+        AccountEmails emails = new AccountEmails("https://wallet.example.com/");
+
+        EmailMessage email = emails.resetPassword("ana@example.com", "Ana López", "abc_-123",
+                Instant.parse("2026-10-30T12:30:00Z"));
+
+        assertThat(email.subject()).isEqualTo("Reset your password");
+        assertThat(email.body()).startsWith("Hi Ana López,")
+                .contains("https://wallet.example.com/reset-password#token=abc_-123")
+                .contains("expires at 2026-10-30 12:30 UTC");
+    }
+
+    @Test
+    void passwordChangesAndAccountStatusNeverMentionInternalDetails() {
+        UUID userId = UUID.randomUUID();
+
+        assertThat(NotificationMessages.passwordChanged(userId, true, AT).title()).isEqualTo("Your password was reset");
+        assertThat(NotificationMessages.passwordChanged(userId, false, AT).body()).contains("was changed");
+        assertThat(NotificationMessages.accountDisabled(userId, AT).body()).contains("Contact support");
+    }
+
+    @Test
     void textMustFitTheColumns() {
         assertThatThrownBy(() -> Notification.create(NotificationType.WELCOME, "key", UUID.randomUUID(),
                 "x".repeat(Notification.MAX_TITLE_LENGTH + 1), "body", null, AT))

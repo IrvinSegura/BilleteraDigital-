@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
+import com.irvinsegura.wallet.support.MailpitContainer;
 import com.jayway.jsonpath.JsonPath;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -44,6 +45,9 @@ class IncomingMoneyFreezeIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
+    private MailpitContainer mailpit;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -57,7 +61,7 @@ class IncomingMoneyFreezeIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
         alice = api.newUser();
         bob = api.newUser();
         aliceWallet = api.openWalletId(alice, "MXN");

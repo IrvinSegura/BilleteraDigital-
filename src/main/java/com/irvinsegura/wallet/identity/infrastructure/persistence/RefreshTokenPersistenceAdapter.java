@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.identity.infrastructure.persistence;
 
 import com.irvinsegura.wallet.identity.domain.model.RefreshToken;
+import com.irvinsegura.wallet.identity.domain.model.UserId;
 import com.irvinsegura.wallet.identity.domain.port.RefreshTokenRepository;
 import java.time.Instant;
 import java.util.Optional;
@@ -29,6 +30,11 @@ class RefreshTokenPersistenceAdapter implements RefreshTokenRepository {
     @Override
     public void revokeFamily(UUID familyId, Instant now) {
         jpaRepository.revokeFamily(familyId, now);
+    }
+
+    @Override
+    public void revokeAllForUser(UserId userId, Instant now) {
+        jpaRepository.revokeAllForUser(userId.value(), now);
     }
 
     @Override

@@ -4,8 +4,13 @@ import com.irvinsegura.wallet.accounts.WalletOpened;
 import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.audit.domain.model.AuditEntry;
 import com.irvinsegura.wallet.audit.domain.port.AuditLogRepository;
+import com.irvinsegura.wallet.identity.EmailVerified;
+import com.irvinsegura.wallet.identity.PasswordChanged;
+import com.irvinsegura.wallet.identity.PasswordResetRequested;
 import com.irvinsegura.wallet.identity.UserLockedOut;
 import com.irvinsegura.wallet.identity.UserRegistered;
+import com.irvinsegura.wallet.identity.UserStatusChanged;
+import com.irvinsegura.wallet.identity.UserUnlocked;
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
@@ -40,6 +45,39 @@ class AuditEventListener {
         // No actor: the system locked the account
         auditLog.append(AuditEntry.of("USER_LOCKED_OUT", event.userId() + "@" + event.occurredAt(),
                 event.occurredAt(), null, USER, event.userId(), "locked until " + event.lockedUntil()));
+    }
+
+    @ApplicationModuleListener
+    void on(EmailVerified event) {
+        auditLog.append(AuditEntry.of("USER_EMAIL_VERIFIED", event.userId() + "@" + event.occurredAt(),
+                event.occurredAt(), event.userId(), USER, event.userId(), null));
+    }
+
+    // No actor: anyone can ask for a reset link; a burst of them for one account is worth noticing
+    @ApplicationModuleListener
+    void on(PasswordResetRequested event) {
+        auditLog.append(AuditEntry.of("PASSWORD_RESET_REQUESTED", event.userId() + "@" + event.occurredAt(),
+                event.occurredAt(), null, USER, event.userId(), null));
+    }
+
+    @ApplicationModuleListener
+    void on(PasswordChanged event) {
+        String action = "RESET".equals(event.method()) ? "PASSWORD_RESET" : "PASSWORD_CHANGED";
+        auditLog.append(AuditEntry.of(action, event.userId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.userId(), USER, event.userId(), "all sessions ended"));
+    }
+
+    @ApplicationModuleListener
+    void on(UserUnlocked event) {
+        auditLog.append(AuditEntry.of("USER_UNLOCKED", event.userId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.unlockedBy(), USER, event.userId(), null));
+    }
+
+    @ApplicationModuleListener
+    void on(UserStatusChanged event) {
+        String action = "DISABLED".equals(event.status()) ? "USER_DISABLED" : "USER_ENABLED";
+        auditLog.append(AuditEntry.of(action, event.userId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.changedBy(), USER, event.userId(), "reason: " + event.reason()));
     }
 
     @ApplicationModuleListener

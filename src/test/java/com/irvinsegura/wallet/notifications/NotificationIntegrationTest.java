@@ -61,7 +61,7 @@ class NotificationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        api = new ApiClient(mockMvc);
+        api = new ApiClient(mockMvc, mailpit);
         mailbox = new Mailbox(mailpit);
     }
 
@@ -85,11 +85,14 @@ class NotificationIntegrationTest {
         assertThat((String) JsonPath.read(inbox(sender, ""), "$.items[0].body"))
                 .isEqualTo("You sent 30.25 MXN to %s.".formatted(recipient.email()));
 
-        assertEventually(() -> assertThat(mailbox.subjectsFor(recipient.email()))
-                .containsExactly("Money received", "Welcome to Digital Wallet"));
+        // The welcome and the verification email are sent at the same time, so their order varies
+        assertEventually(() -> assertThat(mailbox.subjectsFor(recipient.email())).hasSize(3)
+                .startsWith("Money received")
+                .contains("Welcome to Digital Wallet", "Confirm your email address"));
         assertThat(mailbox.snippetsFor(recipient.email()).getFirst()).contains("Ana López sent you 30.25 MXN.");
         assertEventually(() -> assertThat(mailbox.subjectsFor(sender.email()))
-                .containsExactlyInAnyOrder("Transfer sent", "Deposit received", "Welcome to Digital Wallet"));
+                .containsExactlyInAnyOrder("Transfer sent", "Deposit received", "Welcome to Digital Wallet",
+                        "Confirm your email address"));
     }
 
     @Test
