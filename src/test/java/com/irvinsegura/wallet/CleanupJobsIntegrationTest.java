@@ -6,6 +6,7 @@ import com.irvinsegura.wallet.accounts.application.OutgoingUsageCleanupService;
 import com.irvinsegura.wallet.identity.application.OneTimeTokenCleanupService;
 import com.irvinsegura.wallet.identity.application.RefreshTokenCleanupService;
 import com.irvinsegura.wallet.notifications.application.NotificationCleanupService;
+import com.irvinsegura.wallet.payments.application.WebhookEventCleanupService;
 import com.irvinsegura.wallet.transfers.application.IdempotencyKeyCleanupService;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -47,6 +48,9 @@ class CleanupJobsIntegrationTest {
 
     @Autowired
     private OneTimeTokenCleanupService oneTimeTokenCleanup;
+
+    @Autowired
+    private WebhookEventCleanupService webhookEventCleanup;
 
     @Test
     void idempotencyKeysAreDeletedAfterTheRetentionPeriod() {
@@ -110,6 +114,20 @@ class CleanupJobsIntegrationTest {
     }
 
     @Test
+    void webhookEventIdsAreForgottenAfterTheRetentionPeriod() {
+        String oldEvent = "evt_" + UUID.randomUUID();
+        String recentEvent = "evt_" + UUID.randomUUID();
+        Instant now = Instant.now();
+        insertWebhookEvent(oldEvent, now.minus(Duration.ofDays(31)));
+        insertWebhookEvent(recentEvent, now.minus(Duration.ofDays(29)));
+
+        assertThat(webhookEventCleanup.deleteOlderThan(Duration.ofDays(30))).isGreaterThanOrEqualTo(1);
+
+        assertThat(jdbcTemplate.queryForList("SELECT event_id FROM payment_webhook_events WHERE event_id IN (?, ?)",
+                String.class, oldEvent, recentEvent)).containsExactly(recentEvent);
+    }
+
+    @Test
     void notificationsAreDeletedAfterTheRetentionPeriodReadOrNot() {
         UUID userId = UUID.randomUUID();
         insertNotification(userId, "old", Instant.now().minus(Duration.ofDays(91)));
@@ -155,6 +173,13 @@ class CleanupJobsIntegrationTest {
                         VALUES (?, ?, ?, ?, ?, ?)""",
                 UUID.randomUUID(), userId, purpose, UUID.randomUUID().toString(), Timestamp.from(createdAt),
                 Timestamp.from(expiresAt));
+    }
+
+    private void insertWebhookEvent(String eventId, Instant receivedAt) {
+        jdbcTemplate.update("""
+                        INSERT INTO payment_webhook_events (provider, event_id, type, received_at)
+                        VALUES ('STRIPE', ?, 'checkout.session.completed', ?)""",
+                eventId, Timestamp.from(receivedAt));
     }
 
     private void insertRefreshToken(UUID userId, UUID familyId, Instant issuedAt, Instant expiresAt) {

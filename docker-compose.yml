@@ -55,6 +55,11 @@ services:
       EMAIL_FROM: Digital Wallet <no-reply@wallet.local>
       # Client app that opens the links in verification and password reset emails
       APP_URL: ${APP_URL:-http://localhost:3000}
+      # Simulated unless Stripe test keys are given, e.g. PAYMENT_PROVIDER=stripe with STRIPE_API_KEY=sk_test_...
+      # and the STRIPE_WEBHOOK_SECRET printed by `stripe listen`
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-simulated}
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       # Traces go to Tempo when the observability profile is running too
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
