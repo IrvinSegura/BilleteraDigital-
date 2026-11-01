@@ -6,6 +6,7 @@ import com.irvinsegura.wallet.accounts.domain.model.Wallet;
 import com.irvinsegura.wallet.accounts.domain.port.WalletRepository;
 import com.irvinsegura.wallet.ledger.Ledger;
 import java.time.Clock;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,11 @@ public class WalletAdministrationService {
     @Transactional(readOnly = true)
     public AdminWalletView getWallet(UUID walletId) {
         return toView(walletRepository.findById(walletId).orElseThrow(WalletNotFoundException::new));
+    }
+
+    @Transactional(readOnly = true)
+    public List<AdminWalletView> listWallets(UUID ownerId) {
+        return walletRepository.findByOwner(ownerId).stream().map(this::toView).toList();
     }
 
     @Transactional
