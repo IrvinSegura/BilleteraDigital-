@@ -18,6 +18,7 @@ import com.irvinsegura.wallet.transfers.domain.model.PayoutProviderUnavailableEx
 import com.irvinsegura.wallet.transfers.domain.model.PayoutResult;
 import com.irvinsegura.wallet.transfers.domain.port.PayoutGateway;
 import com.jayway.jsonpath.JsonPath;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -61,6 +62,9 @@ class PendingWithdrawalIntegrationTest {
 
     @Autowired
     private ReconciliationService reconciliation;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     private ApiClient api;
     private TestUser user;
@@ -125,6 +129,8 @@ class PendingWithdrawalIntegrationTest {
                 .andExpect(jsonPath("$.items[0].operationId").value(withdrawalId));
         assertEventually(() -> assertThat(notificationTypes()).contains("WITHDRAWAL_FAILED"));
         assertEventually(() -> assertThat(auditActions(admin)).contains("WITHDRAWAL_FAILED"));
+        assertThat(meterRegistry.get("wallet.withdrawals.failed").tag("reason", "ACCOUNT_CLOSED").counter().count())
+                .isPositive();
         assertThat(reconciliation.reconcile(ReconciliationRun.Trigger.MANUAL, null).isConsistent()).isTrue();
     }
 

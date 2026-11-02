@@ -8,6 +8,12 @@ import java.util.UUID;
 public interface BankAccountRepository {
 
     /**
+     * Serializes changes to one owner's bank accounts until the transaction ends, so a count taken afterwards stays
+     * true until commit.
+     */
+    void lockOwner(UUID ownerId);
+
+    /**
      * @throws com.irvinsegura.wallet.accounts.domain.model.BankAccountAlreadyExistsException if the owner already
      *         has an active bank account with the same CLABE
      */

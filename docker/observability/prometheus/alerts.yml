@@ -28,6 +28,24 @@ groups:
           summary: An event has been waiting for its listener for over 5 minutes
           description: Audit entries are falling behind; look for listener errors in the logs.
 
+      - alert: PayoutStuck
+        # SPEI settles in minutes and the payout job retries every minute; the ledger cannot see a stuck payout
+        expr: wallet_withdrawals_oldest_pending_age_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A withdrawal has been waiting for its payout for over 30 minutes
+          description: The payout provider may be down; look for payout warnings in the logs. The money is safe in transit.
+
+      - alert: PayoutFailures
+        # A few refusals are normal (closed accounts); many at once usually mean a provider or data problem
+        expr: sum(increase(wallet_withdrawals_failed_total[1h])) > 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} payouts refused by the bank in the last hour"
+
       - alert: HighServerErrorRate
         expr: >
           sum(rate(http_server_requests_seconds_count{application="digital-wallet", status=~"5.."}[5m]))

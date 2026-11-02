@@ -949,6 +949,211 @@
     },
     {
       "type": "row",
+      "title": "Payouts",
+      "id": 22,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Pending payouts",
+      "id": 23,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "exemplar": false,
+          "range": true,
+          "instant": false,
+          "expr": "max(wallet_withdrawals_pending)",
+          "legendFormat": "__auto"
+        }
+      ],
+      "description": "Withdrawals whose payout the bank has not confirmed or refused yet; the money is in transit.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Oldest pending payout",
+      "id": 24,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 4,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "exemplar": false,
+          "range": true,
+          "instant": false,
+          "expr": "max(wallet_withdrawals_oldest_pending_age_seconds)",
+          "legendFormat": "age"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "The PayoutStuck alert fires above 30 minutes. The ledger reconciliation cannot see a stuck payout."
+    },
+    {
+      "type": "timeseries",
+      "title": "Payouts refused per hour",
+      "id": 25,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "exemplar": false,
+          "range": true,
+          "instant": false,
+          "expr": "sum by (reason) (increase(wallet_withdrawals_failed_total[1h]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Refusal codes from the payout provider; the money of each went back to its wallet."
+    },
+    {
+      "type": "row",
       "title": "Runtime",
       "id": 18,
       "collapsed": false,
@@ -956,7 +1161,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 31
+        "y": 38
       },
       "panels": []
     },
@@ -972,7 +1177,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 32
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1056,7 +1261,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 32
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1128,7 +1333,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 32
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {

@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -16,9 +17,21 @@ class BankAccountPersistenceAdapter implements BankAccountRepository {
     private static final String UNIQUE_ACTIVE_CLABE_INDEX = "uk_bank_accounts_owner_clabe_active";
 
     private final BankAccountJpaRepository jpaRepository;
+    private final JdbcClient jdbcClient;
 
-    BankAccountPersistenceAdapter(BankAccountJpaRepository jpaRepository) {
+    BankAccountPersistenceAdapter(BankAccountJpaRepository jpaRepository, JdbcClient jdbcClient) {
         this.jpaRepository = jpaRepository;
+        this.jdbcClient = jdbcClient;
+    }
+
+    // An advisory lock rather than a row lock: an owner's first bank account has no row to lock yet. Released at
+    // commit; two owners sharing a hash only wait for each other, never see each other's rows
+    @Override
+    public void lockOwner(UUID ownerId) {
+        jdbcClient.sql("SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(:key, 0))")
+                .param("key", "bank_accounts:" + ownerId)
+                .query(Integer.class)
+                .single();
     }
 
     @Override
