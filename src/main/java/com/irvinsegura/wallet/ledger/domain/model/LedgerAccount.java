@@ -15,6 +15,8 @@ import java.util.UUID;
 public class LedgerAccount {
 
     public static final String SETTLEMENT = "SETTLEMENT";
+    // Money already taken from a wallet for a payout the bank has not confirmed yet
+    public static final String PAYOUTS_IN_TRANSIT = "PAYOUTS_IN_TRANSIT";
 
     private final UUID id;
     private final AccountType type;
