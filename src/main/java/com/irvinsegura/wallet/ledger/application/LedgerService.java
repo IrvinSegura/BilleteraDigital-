@@ -51,7 +51,17 @@ public class LedgerService implements Ledger {
     @Override
     @Transactional(readOnly = true)
     public UUID settlementAccount(Currency currency) {
-        return accountRepository.findSystemAccount(LedgerAccount.SETTLEMENT, currency)
+        return systemAccount(LedgerAccount.SETTLEMENT, currency);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UUID payoutsInTransitAccount(Currency currency) {
+        return systemAccount(LedgerAccount.PAYOUTS_IN_TRANSIT, currency);
+    }
+
+    private UUID systemAccount(String systemCode, Currency currency) {
+        return accountRepository.findSystemAccount(systemCode, currency)
                 .map(LedgerAccount::id)
                 .orElseThrow(() -> new UnsupportedCurrencyException(currency.getCurrencyCode()));
     }

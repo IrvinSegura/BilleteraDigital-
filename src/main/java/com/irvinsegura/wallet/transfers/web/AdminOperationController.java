@@ -6,6 +6,7 @@ import com.irvinsegura.wallet.transfers.domain.model.Deposit;
 import com.irvinsegura.wallet.transfers.domain.model.DepositStatus;
 import com.irvinsegura.wallet.transfers.domain.model.Transfer;
 import com.irvinsegura.wallet.transfers.domain.model.Withdrawal;
+import com.irvinsegura.wallet.transfers.domain.model.WithdrawalStatus;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import java.time.Instant;
 import java.util.UUID;
@@ -40,11 +41,8 @@ class AdminOperationController {
     }
 
     @GetMapping("/withdrawals/{withdrawalId}")
-    AdminWalletOperationResponse withdrawal(@PathVariable UUID withdrawalId) {
-        Withdrawal withdrawal = administrationService.getWithdrawal(withdrawalId);
-        return new AdminWalletOperationResponse(withdrawal.id(), withdrawal.userId(), withdrawal.walletId(),
-                MoneyResponse.from(withdrawal.amount()), MoneyResponse.from(withdrawal.balanceAfter()),
-                withdrawal.journalEntryId(), withdrawal.createdAt());
+    AdminWithdrawalResponse withdrawal(@PathVariable UUID withdrawalId) {
+        return AdminWithdrawalResponse.from(administrationService.getWithdrawal(withdrawalId));
     }
 
     record AdminTransferResponse(UUID id, UUID senderId, UUID sourceWalletId, UUID recipientId,
@@ -72,8 +70,20 @@ class AdminOperationController {
         }
     }
 
-    // A withdrawal touches one wallet and keeps the balance it left behind
-    record AdminWalletOperationResponse(UUID id, UUID userId, UUID walletId, MoneyResponse amount,
-            MoneyResponse balanceAfter, UUID journalEntryId, Instant createdAt) {
+    /**
+     * {@code journalEntryId} took the money from the wallet; {@code settlementEntryId} paid it out or gave it back,
+     * and {@code providerReference} finds the payout at the provider.
+     */
+    record AdminWithdrawalResponse(UUID id, UUID userId, UUID walletId, UUID bankAccountId, WithdrawalStatus status,
+            MoneyResponse amount, MoneyResponse balanceAfter, UUID journalEntryId, UUID settlementEntryId,
+            String providerReference, String failureReason, Instant createdAt, Instant closedAt) {
+
+        static AdminWithdrawalResponse from(Withdrawal withdrawal) {
+            return new AdminWithdrawalResponse(withdrawal.id(), withdrawal.userId(), withdrawal.walletId(),
+                    withdrawal.bankAccountId(), withdrawal.status(), MoneyResponse.from(withdrawal.amount()),
+                    MoneyResponse.from(withdrawal.balanceAfter()), withdrawal.journalEntryId(),
+                    withdrawal.settlementEntryId(), withdrawal.providerReference(), withdrawal.failureReason(),
+                    withdrawal.createdAt(), withdrawal.closedAt());
+        }
     }
 }

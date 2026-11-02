@@ -58,6 +58,12 @@ class UserDirectoryService implements UserDirectory {
         lockForMoneyMovement(userId);
     }
 
+    @Override
+    @Transactional
+    public void authorizeAccountChange(UUID userId) {
+        lockForMoneyMovement(userId);
+    }
+
     private User lockForMoneyMovement(UUID userId) {
         // Users are never deleted, so a missing one can only be a token for an account that never existed here
         User user = userRepository.findByIdForShare(new UserId(userId)).orElseThrow(AccountDisabledException::new);

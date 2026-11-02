@@ -55,15 +55,57 @@ class WithdrawalIntegrationTest {
 
     @Test
     void withdrawalLowersTheBalanceAndAppearsInTheStatement() throws Exception {
+        // The simulated provider pays at once, so the withdrawal is paid within the request
         String withdrawalId = read(api.withdraw(user, walletId, "120.50")
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PAID"))
                 .andExpect(jsonPath("$.amount.amount").value("120.50"))
                 .andExpect(jsonPath("$.balance.amount").value("879.50")), "$.id");
 
+        // Paying out moves the money from transit to the bank; the wallet sees only the money leaving it
         api.get(user, "/api/v1/wallets/" + walletId + "/movements")
                 .andExpect(jsonPath("$.items[0].type").value("WITHDRAWAL"))
                 .andExpect(jsonPath("$.items[0].direction").value("OUT"))
-                .andExpect(jsonPath("$.items[0].operationId").value(withdrawalId));
+                .andExpect(jsonPath("$.items[0].operationId").value(withdrawalId))
+                .andExpect(jsonPath("$.items[1].type").value("DEPOSIT"));
+        api.get(user, "/api/v1/wallets/" + walletId + "/withdrawals/" + withdrawalId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.closedAt").isNotEmpty());
+        api.get(api.newUser(), "/api/v1/wallets/" + walletId + "/withdrawals/" + withdrawalId)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("WITHDRAWAL_NOT_FOUND"));
+    }
+
+    @Test
+    void mxnWithdrawalsGoToOneOfTheUsersOwnBankAccounts() throws Exception {
+        api.withdrawTo(user, walletId, "10.00", newKey(), null)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("BANK_ACCOUNT_REQUIRED"));
+
+        TestUser stranger = api.newUser();
+        String strangersAccount = read(api.addBankAccount(stranger, ApiClient.newClabe()), "$.id");
+        api.withdrawTo(user, walletId, "10.00", newKey(), strangersAccount)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BANK_ACCOUNT_NOT_FOUND"));
+
+        String ownAccount = read(api.addBankAccount(user, ApiClient.newClabe()), "$.id");
+        api.withdrawTo(user, walletId, "10.00", newKey(), ownAccount)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.bankAccountId").value(ownAccount));
+        assertThat(api.balance(user, walletId)).isEqualTo("990.00");
+    }
+
+    @Test
+    void usdWithdrawalsTakeNoBankAccount() throws Exception {
+        String usdWallet = api.openWalletId(user, "USD");
+        api.deposit(user, usdWallet, "50.00").andExpect(status().isCreated());
+        String account = read(api.addBankAccount(user, ApiClient.newClabe()), "$.id");
+
+        api.withdrawTo(user, usdWallet, "10.00", newKey(), account)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("BANK_ACCOUNT_NOT_SUPPORTED"));
+        api.withdrawTo(user, usdWallet, "10.00", newKey(), null).andExpect(status().isCreated());
     }
 
     @Test

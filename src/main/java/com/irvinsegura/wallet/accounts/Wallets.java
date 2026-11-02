@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.accounts;
 
 import com.irvinsegura.wallet.shared.domain.Money;
+import java.time.Instant;
 import java.util.Currency;
 import java.util.Optional;
 import java.util.UUID;
@@ -33,6 +34,16 @@ public interface Wallets {
      * @throws DailyLimitExceededException if the amount would exceed today's limit
      */
     WalletInfo reserveOutgoing(UUID walletId, UUID ownerId, Money amount);
+
+    /**
+     * Gives back an amount reserved with {@link #reserveOutgoing} that never left, e.g. a payout the bank refused.
+     * It is returned to the day it was reserved on, so it only helps if that day is not over. Works on frozen
+     * wallets too; locks the wallet row like {@code reserveOutgoing}.
+     *
+     * @param reservedAt when the amount was reserved
+     * @throws WalletNotFoundException if the wallet does not exist or belongs to someone else
+     */
+    void releaseOutgoing(UUID walletId, UUID ownerId, Money amount, Instant reservedAt);
 
     /**
      * Authorizes money coming into the user's own wallet (a deposit): takes a shared lock on the wallet row until the

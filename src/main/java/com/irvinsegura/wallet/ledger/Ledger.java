@@ -25,6 +25,14 @@ public interface Ledger {
     UUID settlementAccount(Currency currency);
 
     /**
+     * Liability holding money taken from wallets for payouts still on their way to the user's bank. A confirmed
+     * payout moves it to the settlement account; a failed one moves it back to the wallet.
+     *
+     * @throws UnsupportedCurrencyException if the currency is not supported
+     */
+    UUID payoutsInTransitAccount(Currency currency);
+
+    /**
      * Records a balanced entry and updates both balances. Accounts are locked in a fixed order, so concurrent
      * entries touching the same accounts never deadlock.
      *

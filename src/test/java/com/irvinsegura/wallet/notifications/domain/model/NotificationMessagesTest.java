@@ -102,4 +102,13 @@ class NotificationMessagesTest {
         assertThat(notification.title()).isEqualTo("Deposit refunded");
         assertThat(notification.body()).contains("40.00 MXN", "refunded").doesNotContain("frozen", "disabled");
     }
+
+    @Test
+    void aReturnedWithdrawalSaysTheMoneyIsBackInTheWallet() {
+        Notification notification = NotificationMessages.withdrawalFailed(UUID.randomUUID(), UUID.randomUUID(),
+                Money.ofMinor(25000, "MXN"), AT);
+
+        assertThat(notification.title()).isEqualTo("Withdrawal returned");
+        assertThat(notification.body()).contains("250.00 MXN", "back in your wallet");
+    }
 }

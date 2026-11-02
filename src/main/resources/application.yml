@@ -123,6 +123,11 @@ wallet:
     idempotency-key-cleanup:
       cron: "0 45 3 * * *"
       retention: 24h
+    # Pending withdrawals are sent again (provider down) or checked (payout on its way) by a job; the newest are
+    # left alone for a while because the request that made them is still sending them
+    payouts:
+      check-interval: 1m
+      retry-after: 1m
   ledger:
     reconciliation:
       cron: "0 5 * * * *"
