@@ -36,4 +36,12 @@ public interface UserDirectory {
      * @throws AccountDisabledException if an administrator disabled the account
      */
     void authorizeDeposit(UUID userId);
+
+    /**
+     * Authorizes a change to where the user's money can go, such as adding a bank account: the same lock and status
+     * check as a deposit, so a disabled account cannot prepare a destination with an access token issued earlier.
+     *
+     * @throws AccountDisabledException if an administrator disabled the account
+     */
+    void authorizeAccountChange(UUID userId);
 }

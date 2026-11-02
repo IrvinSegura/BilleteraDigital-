@@ -124,7 +124,11 @@ Mount both files as secrets and point `JWT_PRIVATE_KEY_LOCATION` and `JWT_PUBLIC
 | GET | `/api/v1/wallets/{id}/movements?page=0&size=20` | Statement, newest first, with the balance after each movement |
 | POST | `/api/v1/wallets/{id}/deposits` | Top-up through the payment provider (`{"amount": 100.50}`); needs `Idempotency-Key` |
 | GET | `/api/v1/wallets/{id}/deposits/{depositId}` | A deposit and its status, to follow it after the checkout |
-| POST | `/api/v1/wallets/{id}/withdrawals` | Simulated payout to the user's bank; needs `Idempotency-Key` |
+| POST | `/api/v1/wallets/{id}/withdrawals` | Payout to the user's bank (`{"amount": 100, "bankAccountId": "..."}`, bank account required for MXN); needs `Idempotency-Key` |
+| POST | `/api/v1/bank-accounts` | Add a CLABE (`{"clabe": "...", "holderName": "..."}`); at most 5, only the last four digits are returned |
+| GET | `/api/v1/bank-accounts` | Your bank accounts |
+| DELETE | `/api/v1/bank-accounts/{id}` | Remove one (`204`); withdrawals already on their way still arrive |
+| GET | `/api/v1/wallets/{id}/withdrawals/{withdrawalId}` | A withdrawal and the status of its payout |
 
 All of them require a bearer token. Amounts are returned as decimal strings (`{"amount": "100.50", "currency":
 "MXN"}`) so clients never lose cents to floating point. Money is recorded in a double-entry ledger: see
@@ -154,6 +158,15 @@ stripe listen --forward-to localhost:8080/api/v1/payments/webhooks/stripe
 Then start the app with `PAYMENT_PROVIDER=stripe`, `STRIPE_API_KEY=sk_test_...` and `STRIPE_WEBHOOK_SECRET` set to
 the `whsec_...` value the command printed, open the `checkoutUrl` of a deposit and pay with card `4242 4242 4242 4242`.
 Design: [ADR 0009](docs/adr/0009-payment-provider-deposits.md).
+
+### Withdrawals
+
+The money leaves the wallet as soon as a withdrawal is requested and waits in a payouts-in-transit account until the
+bank confirms the payout. The answer is `201` with `"status": "PAID"` when the payout is already confirmed (always,
+with the simulated provider) or `202` with `"status": "PENDING"` while it is on its way. If the bank refuses the
+payout, the withdrawal becomes `FAILED` with a `failureReason`, the money goes back to the wallet (statement type
+`WITHDRAWAL_REVERSAL`) and the user is notified. A job sends again every minute the payouts the provider never
+received and checks the ones on their way. Design: [ADR 0010](docs/adr/0010-asynchronous-withdrawals.md).
 
 ## Transfers
 
@@ -222,8 +235,8 @@ disabled.
 
 Users are notified when they register, when failed logins lock their account, when their password is changed or
 reset, when an administrator disables or enables their account, on every deposit, withdrawal and transfer (sent and
-received), when a paid deposit is refunded because the wallet could not receive it, and when an administrator freezes
-or unfreezes one of their wallets. Each one is also
+received), when a paid deposit is refunded because the wallet could not receive it, when the bank refuses a
+withdrawal, and when an administrator freezes or unfreezes one of their wallets. Each one is also
 emailed. Notifications come from the event outbox like the audit log, so they appear a moment after the operation
 and are never lost; the email is a separate step, so a mail server outage only delays the email. Notifications are
 deleted after 90 days. See [ADR 0007](docs/adr/0007-notifications-and-event-retries.md).
@@ -257,7 +270,8 @@ blocks or misreads transfers in flight, and only one instance runs it at a time.
 
 Nightly jobs also delete expired refresh token families, expired email link tokens, idempotency keys older than
 24 hours, daily usage rows older than 7 days, notifications older than 90 days and payment webhook ids older than
-30 days. Every 5 minutes a job settles payments whose provider webhook never arrived.
+30 days. Every 5 minutes a job settles payments whose provider webhook never arrived, and every minute another one
+moves pending withdrawals forward.
 
 ### Rate limits
 
