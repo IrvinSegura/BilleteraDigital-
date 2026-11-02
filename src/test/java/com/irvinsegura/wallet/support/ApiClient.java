@@ -7,10 +7,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
@@ -28,6 +32,8 @@ public final class ApiClient {
 
     private final MockMvc mockMvc;
     private final Mailbox mailbox;
+    // The bank account each user's MXN withdrawals go to, added on their first withdrawal
+    private final Map<String, String> bankAccounts = new ConcurrentHashMap<>();
 
     public ApiClient(MockMvc mockMvc, MailpitContainer mailpit) {
         this.mockMvc = mockMvc;
@@ -133,14 +139,66 @@ public final class ApiClient {
         return withdraw(user, walletId, amount, newKey());
     }
 
+    /**
+     * MXN withdrawals go to a bank account of the user, added on their first one; others go without one.
+     */
     public ResultActions withdraw(TestUser user, String walletId, String amount, String idempotencyKey)
             throws Exception {
+        return withdrawTo(user, walletId, amount, idempotencyKey, defaultBankAccount(user, walletId));
+    }
+
+    public ResultActions withdrawTo(TestUser user, String walletId, String amount, String idempotencyKey,
+            String bankAccountId) throws Exception {
+        String bankAccount = bankAccountId == null ? "" : ", \"bankAccountId\": \"%s\"".formatted(bankAccountId);
         return mockMvc.perform(post("/api/v1/wallets/" + walletId + "/withdrawals")
                 .header("Authorization", user.bearer())
                 .header("Idempotency-Key", idempotencyKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"amount": %s}""".formatted(amount)));
+                        {"amount": %s%s}""".formatted(amount, bankAccount)));
+    }
+
+    public ResultActions addBankAccount(TestUser user, String clabe) throws Exception {
+        return postJson(user, "/api/v1/bank-accounts", """
+                {"clabe": "%s", "holderName": "Ana López"}""".formatted(clabe));
+    }
+
+    /**
+     * A random CLABE with a correct check digit, at bank 002.
+     */
+    public static String newClabe() {
+        StringBuilder digits = new StringBuilder("002");
+        for (int i = 0; i < 14; i++) {
+            digits.append(ThreadLocalRandom.current().nextInt(10));
+        }
+        int[] weights = {3, 7, 1};
+        int sum = 0;
+        for (int i = 0; i < 17; i++) {
+            sum += (digits.charAt(i) - '0') * weights[i % 3] % 10;
+        }
+        return digits.append((10 - sum % 10) % 10).toString();
+    }
+
+    // Only MXN wallets the user owns need one; for anything else, or a user who cannot add one (a disabled account),
+    // the withdrawal goes without one and the API decides what to answer
+    private String defaultBankAccount(TestUser user, String walletId) throws Exception {
+        String wallet = get(user, "/api/v1/wallets/" + walletId).andReturn().getResponse().getContentAsString();
+        if (!wallet.contains("\"MXN\"")) {
+            return null;
+        }
+        synchronized (bankAccounts) {
+            String existing = bankAccounts.get(user.email());
+            if (existing != null) {
+                return existing;
+            }
+            MvcResult added = addBankAccount(user, newClabe()).andReturn();
+            if (added.getResponse().getStatus() != 201) {
+                return null;
+            }
+            String id = JsonPath.read(added.getResponse().getContentAsString(), "$.id");
+            bankAccounts.put(user.email(), id);
+            return id;
+        }
     }
 
     public ResultActions transfer(TestUser user, String sourceWalletId, String recipientEmail, String amount,
