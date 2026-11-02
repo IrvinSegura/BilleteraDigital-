@@ -46,6 +46,8 @@ public class BankAccountService implements BankAccounts {
     public BankAccountSummary add(UUID ownerId, String clabe, String holderName) {
         Clabe parsed = Clabe.parse(clabe);
         users.authorizeAccountChange(ownerId);
+        // The account lock above is shared, so two adds at once would both count four and both insert
+        repository.lockOwner(ownerId);
         if (repository.findActiveByOwner(ownerId).size() >= BankAccount.MAX_ACTIVE_PER_OWNER) {
             throw new BankAccountLimitReachedException(BankAccount.MAX_ACTIVE_PER_OWNER);
         }

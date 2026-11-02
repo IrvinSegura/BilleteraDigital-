@@ -19,7 +19,12 @@ import com.irvinsegura.wallet.support.ApiClient;
 import com.irvinsegura.wallet.support.ApiClient.TestUser;
 import com.irvinsegura.wallet.support.MailpitContainer;
 import com.jayway.jsonpath.JsonPath;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -110,6 +115,28 @@ class BankAccountIntegrationTest {
         api.addBankAccount(user, newClabe())
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("BANK_ACCOUNT_LIMIT_REACHED"));
+    }
+
+    @Test
+    void theLimitHoldsWhenAccountsAreAddedAtOnce() throws Exception {
+        for (int i = 0; i < 4; i++) {
+            api.addBankAccount(user, newClabe()).andExpect(status().isCreated());
+        }
+
+        List<Integer> statuses = new ArrayList<>();
+        try (ExecutorService executor = Executors.newFixedThreadPool(5)) {
+            List<Callable<Integer>> adds = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                String clabe = newClabe();
+                adds.add(() -> api.addBankAccount(user, clabe).andReturn().getResponse().getStatus());
+            }
+            for (Future<Integer> add : executor.invokeAll(adds)) {
+                statuses.add(add.get());
+            }
+        }
+
+        assertThat(statuses).containsOnlyOnce(201).containsOnly(201, 422);
+        api.get(user, BANK_ACCOUNTS).andExpect(jsonPath("$.length()").value(5));
     }
 
     @Test
