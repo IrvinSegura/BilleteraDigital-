@@ -57,6 +57,8 @@ class ObservabilityIntegrationTest {
                 .containsPattern("wallet_business_rejections_total\\{[^}]*code=\"(INSUFFICIENT_FUNDS|DAILY_LIMIT_EXCEEDED)\"")
                 .contains("wallet_events_pending")
                 .contains("wallet_events_oldest_pending_age_seconds")
+                .contains("wallet_withdrawals_pending")
+                .contains("wallet_withdrawals_oldest_pending_age_seconds")
                 .contains("wallet_ledger_reconciliation_discrepancies")
                 .contains("wallet_ledger_reconciliation_last_run_seconds")
                 .containsPattern("http_server_requests_seconds_bucket\\{[^}]*application=\"digital-wallet\"");
