@@ -5,6 +5,7 @@ import com.irvinsegura.wallet.transfers.application.Idempotent;
 import com.irvinsegura.wallet.transfers.application.WithdrawalCommand;
 import com.irvinsegura.wallet.transfers.application.WithdrawalReceipt;
 import com.irvinsegura.wallet.transfers.application.WithdrawalService;
+import com.irvinsegura.wallet.transfers.domain.model.WithdrawalStatus;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Digits;
@@ -18,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,26 +36,55 @@ class WithdrawalController {
         this.withdrawalService = withdrawalService;
     }
 
+    /**
+     * 201 when the bank already confirmed the payout, 202 while it is on its way; the money has left the wallet
+     * either way. A replay of a payout the bank refused answers 200 with its status.
+     */
     @PostMapping("/api/v1/wallets/{walletId}/withdrawals")
     ResponseEntity<WithdrawalResponse> withdraw(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID walletId,
             @RequestHeader(IdempotencyHeaders.KEY)
             @Pattern(regexp = IdempotencyHeaders.KEY_PATTERN, message = IdempotencyHeaders.KEY_MESSAGE) String key,
             @Valid @RequestBody WithdrawalRequest request) {
         Idempotent<WithdrawalReceipt> result = withdrawalService.withdraw(
-                new WithdrawalCommand(UUID.fromString(jwt.getSubject()), key, walletId, request.amount()));
-        return ResponseEntity.status(HttpStatus.CREATED)
+                new WithdrawalCommand(UUID.fromString(jwt.getSubject()), key, walletId, request.amount(),
+                        request.bankAccountId()));
+        return ResponseEntity.status(statusFor(result.value().status()))
                 .header(IdempotencyHeaders.REPLAYED, String.valueOf(result.replayed()))
                 .body(WithdrawalResponse.from(result.value()));
     }
 
-    record WithdrawalRequest(@NotNull @Positive @Digits(integer = 12, fraction = 4) BigDecimal amount) {
+    @GetMapping("/api/v1/wallets/{walletId}/withdrawals/{withdrawalId}")
+    WithdrawalResponse get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID walletId,
+            @PathVariable UUID withdrawalId) {
+        return WithdrawalResponse.from(
+                withdrawalService.getWithdrawal(UUID.fromString(jwt.getSubject()), walletId, withdrawalId));
     }
 
-    record WithdrawalResponse(UUID id, MoneyResponse amount, MoneyResponse balance, Instant createdAt) {
+    private static HttpStatus statusFor(WithdrawalStatus status) {
+        return switch (status) {
+            case PAID -> HttpStatus.CREATED;
+            case PENDING -> HttpStatus.ACCEPTED;
+            case FAILED -> HttpStatus.OK;
+        };
+    }
+
+    /**
+     * @param bankAccountId one of the user's bank accounts; required for MXN wallets, not allowed for USD
+     */
+    record WithdrawalRequest(@NotNull @Positive @Digits(integer = 12, fraction = 4) BigDecimal amount,
+            UUID bankAccountId) {
+    }
+
+    /**
+     * {@code balance} is the wallet balance right after the money left it; {@code failureReason} only when failed.
+     */
+    record WithdrawalResponse(UUID id, WithdrawalStatus status, MoneyResponse amount, MoneyResponse balance,
+            UUID bankAccountId, String failureReason, Instant createdAt, Instant closedAt) {
 
         static WithdrawalResponse from(WithdrawalReceipt receipt) {
-            return new WithdrawalResponse(receipt.id(), MoneyResponse.from(receipt.amount()),
-                    MoneyResponse.from(receipt.balance()), receipt.createdAt());
+            return new WithdrawalResponse(receipt.id(), receipt.status(), MoneyResponse.from(receipt.amount()),
+                    MoneyResponse.from(receipt.balance()), receipt.bankAccountId(), receipt.failureReason(),
+                    receipt.createdAt(), receipt.closedAt());
         }
     }
 }

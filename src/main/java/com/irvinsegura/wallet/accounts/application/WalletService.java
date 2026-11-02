@@ -15,6 +15,7 @@ import com.irvinsegura.wallet.ledger.MovementPage;
 import com.irvinsegura.wallet.ledger.UnsupportedCurrencyException;
 import com.irvinsegura.wallet.shared.domain.Money;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Currency;
 import java.util.List;
@@ -98,6 +99,15 @@ public class WalletService implements Wallets {
         dailyLimitPolicy.check(outgoingUsageRepository.usedOn(walletId, today, wallet.currency()), amount);
         outgoingUsageRepository.add(walletId, today, amount);
         return toInfo(wallet);
+    }
+
+    @Override
+    @Transactional
+    public void releaseOutgoing(UUID walletId, UUID ownerId, Money amount, Instant reservedAt) {
+        walletRepository.findByIdForUpdate(walletId)
+                .filter(found -> found.isOwnedBy(ownerId))
+                .orElseThrow(WalletNotFoundException::new);
+        outgoingUsageRepository.subtract(walletId, dailyLimitPolicy.dayOf(reservedAt), amount);
     }
 
     @Override

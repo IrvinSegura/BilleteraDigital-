@@ -47,6 +47,17 @@ class OutgoingUsageJdbcAdapter implements OutgoingUsageRepository {
     }
 
     @Override
+    public void subtract(UUID walletId, LocalDate day, Money amount) {
+        jdbcClient.sql("""
+                        UPDATE wallet_daily_outgoing SET amount_minor = GREATEST(amount_minor - :amount, 0)
+                        WHERE wallet_id = :walletId AND day = :day""")
+                .param("walletId", walletId)
+                .param("day", day)
+                .param("amount", amount.minorUnits())
+                .update();
+    }
+
+    @Override
     public int deleteBefore(LocalDate day) {
         return jdbcClient.sql("DELETE FROM wallet_daily_outgoing WHERE day < :day")
                 .param("day", day)
