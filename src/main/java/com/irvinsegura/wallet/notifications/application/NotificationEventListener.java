@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.notifications.application;
 
+import com.irvinsegura.wallet.accounts.BankAccountAdded;
 import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.accounts.Wallets;
 import com.irvinsegura.wallet.identity.PasswordChanged;
@@ -14,6 +15,7 @@ import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.DepositRejected;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
 import com.irvinsegura.wallet.transfers.WithdrawalCompleted;
+import com.irvinsegura.wallet.transfers.WithdrawalFailed;
 import java.util.Currency;
 import java.util.UUID;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -86,6 +88,12 @@ class NotificationEventListener {
     }
 
     @ApplicationModuleListener
+    void on(WithdrawalFailed event) {
+        notifications.deliver(NotificationMessages.withdrawalFailed(event.withdrawalId(), event.userId(),
+                Money.ofMinor(event.amountMinor(), event.currency()), event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
     void on(TransferCompleted event) {
         Money amount = Money.ofMinor(event.amountMinor(), event.currency());
         String recipientEmail = users.findContact(event.recipientId()).map(UserContact::email).orElse(SOMEONE);
@@ -94,6 +102,12 @@ class NotificationEventListener {
                 amount, event.occurredAt()));
         notifications.deliver(NotificationMessages.transferReceived(event.transferId(), event.recipientId(),
                 senderName, amount, event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(BankAccountAdded event) {
+        notifications.deliver(NotificationMessages.bankAccountAdded(event.bankAccountId(), event.ownerId(),
+                event.clabeLastFour(), event.occurredAt()));
     }
 
     @ApplicationModuleListener

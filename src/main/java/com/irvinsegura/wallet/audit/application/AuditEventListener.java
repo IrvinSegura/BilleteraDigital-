@@ -1,5 +1,7 @@
 package com.irvinsegura.wallet.audit.application;
 
+import com.irvinsegura.wallet.accounts.BankAccountAdded;
+import com.irvinsegura.wallet.accounts.BankAccountRemoved;
 import com.irvinsegura.wallet.accounts.WalletOpened;
 import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.audit.domain.model.AuditEntry;
@@ -16,6 +18,7 @@ import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.DepositRejected;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
 import com.irvinsegura.wallet.transfers.WithdrawalCompleted;
+import com.irvinsegura.wallet.transfers.WithdrawalFailed;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
@@ -81,6 +84,21 @@ class AuditEventListener {
                 event.changedBy(), USER, event.userId(), "reason: " + event.reason()));
     }
 
+    // Where withdrawals can go: the trail support follows when money leaves a taken-over account
+    @ApplicationModuleListener
+    void on(BankAccountAdded event) {
+        auditLog.append(AuditEntry.of("BANK_ACCOUNT_ADDED", event.bankAccountId().toString(), event.occurredAt(),
+                event.ownerId(), USER, event.ownerId(), "bank account %s: bank %s, CLABE ending %s".formatted(
+                        event.bankAccountId(), event.bankCode(), event.clabeLastFour())));
+    }
+
+    @ApplicationModuleListener
+    void on(BankAccountRemoved event) {
+        auditLog.append(AuditEntry.of("BANK_ACCOUNT_REMOVED", event.bankAccountId().toString(), event.occurredAt(),
+                event.ownerId(), USER, event.ownerId(), "bank account %s: CLABE ending %s".formatted(
+                        event.bankAccountId(), event.clabeLastFour())));
+    }
+
     @ApplicationModuleListener
     void on(WalletOpened event) {
         auditLog.append(AuditEntry.of("WALLET_OPENED", event.walletId().toString(), event.occurredAt(),
@@ -114,6 +132,14 @@ class AuditEventListener {
         auditLog.append(AuditEntry.of("WITHDRAWAL_COMPLETED", event.withdrawalId().toString(), event.occurredAt(),
                 event.userId(), WALLET, event.walletId(),
                 "withdrawal %s: %s".formatted(event.withdrawalId(), money(event.amountMinor(), event.currency()))));
+    }
+
+    // No actor: the bank refused the payout, and the money went back to the wallet
+    @ApplicationModuleListener
+    void on(WithdrawalFailed event) {
+        auditLog.append(AuditEntry.of("WITHDRAWAL_FAILED", event.withdrawalId().toString(), event.occurredAt(),
+                null, WALLET, event.walletId(), "withdrawal %s: %s returned, %s".formatted(event.withdrawalId(),
+                        money(event.amountMinor(), event.currency()), event.reason())));
     }
 
     @ApplicationModuleListener

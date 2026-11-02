@@ -71,9 +71,28 @@ public final class NotificationMessages {
                 depositId, at);
     }
 
+    /**
+     * Also emailed: if someone else added it, the owner learns it from a channel the attacker does not control.
+     */
+    public static Notification bankAccountAdded(UUID bankAccountId, UUID userId, String clabeLastFour, Instant at) {
+        return Notification.create(NotificationType.BANK_ACCOUNT_ADDED, bankAccountId.toString(), userId,
+                "Bank account added",
+                ("The bank account ending in %s can now receive your withdrawals. If you did not add it, remove it "
+                        + "and change your password right away.").formatted(clabeLastFour),
+                null, at);
+    }
+
     public static Notification withdrawalSent(UUID withdrawalId, UUID userId, Money amount, Instant at) {
         return Notification.create(NotificationType.WITHDRAWAL_SENT, withdrawalId.toString(), userId,
-                "Withdrawal sent", "%s is on its way to your bank account.".formatted(amount), withdrawalId, at);
+                "Withdrawal sent", "%s was sent to your bank account.".formatted(amount), withdrawalId, at);
+    }
+
+    public static Notification withdrawalFailed(UUID withdrawalId, UUID userId, Money amount, Instant at) {
+        return Notification.create(NotificationType.WITHDRAWAL_FAILED, withdrawalId.toString(), userId,
+                "Withdrawal returned",
+                ("Your bank could not receive your withdrawal of %s, so the money is back in your wallet. Check your "
+                        + "bank details or contact support.").formatted(amount),
+                withdrawalId, at);
     }
 
     public static Notification transferSent(UUID transferId, UUID senderId, String recipientEmail, Money amount,
