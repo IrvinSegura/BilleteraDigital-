@@ -16,6 +16,11 @@ public interface OutgoingUsageRepository {
     void add(UUID walletId, LocalDate day, Money amount);
 
     /**
+     * Never goes below zero, e.g. if the day's row was already cleaned up.
+     */
+    void subtract(UUID walletId, LocalDate day, Money amount);
+
+    /**
      * @return how many rows were deleted
      */
     int deleteBefore(LocalDate day);
