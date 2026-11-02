@@ -166,7 +166,8 @@ bank confirms the payout. The answer is `201` with `"status": "PAID"` when the p
 with the simulated provider) or `202` with `"status": "PENDING"` while it is on its way. If the bank refuses the
 payout, the withdrawal becomes `FAILED` with a `failureReason`, the money goes back to the wallet (statement type
 `WITHDRAWAL_REVERSAL`) and the user is notified. A job sends again every minute the payouts the provider never
-received and checks the ones on their way. Design: [ADR 0010](docs/adr/0010-asynchronous-withdrawals.md).
+received and checks the ones on their way. The `PayoutStuck` alert fires when one has waited for over 30 minutes.
+Design: [ADR 0010](docs/adr/0010-asynchronous-withdrawals.md).
 
 ## Transfers
 
@@ -296,7 +297,7 @@ docker compose --profile observability up -d
 
 | Tool | URL | What it shows |
 |---|---|---|
-| Grafana | http://localhost:3000 | "Digital Wallet" dashboard: traffic, latency, money moved, rejections, ledger and outbox health, JVM and database pool (sign in as `admin`/`admin` to edit) |
+| Grafana | http://localhost:3000 | "Digital Wallet" dashboard: traffic, latency, money moved, rejections, ledger and outbox health, pending and refused payouts, JVM and database pool (sign in as `admin`/`admin` to edit) |
 | Prometheus | http://localhost:9090 | Raw metrics and alert rules (`docker/observability/prometheus/alerts.yml`) |
 | Tempo | through Grafana, Explore > Tempo | Traces of each request down to every SQL statement |
 

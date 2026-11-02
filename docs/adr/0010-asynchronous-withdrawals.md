@@ -38,6 +38,8 @@ in the ledger, and must be able to come back.
 
 - Clients follow a pending withdrawal with `GET /api/v1/wallets/{id}/withdrawals/{withdrawalId}`.
 - A refused payout gives its amount back to the outgoing limit of the day it was requested.
-- The reconciliation sees money in transit as an ordinary liability; a payout stuck in `PENDING` for long only shows in
-  the withdrawal itself, not as a ledger discrepancy.
+- The reconciliation sees money in transit as an ordinary liability, so a payout stuck in `PENDING` is not a ledger
+  discrepancy. It shows in `wallet_withdrawals_oldest_pending_age_seconds` instead, and the `PayoutStuck` alert fires
+  after 30 minutes; refused payouts are counted by reason in `wallet_withdrawals_failed_total`.
+- Adding a bank account takes a per-owner advisory lock, so concurrent requests cannot go past the limit of five.
 - Withdrawals made before this change are `PAID` without a second entry, since a single entry paid them out.

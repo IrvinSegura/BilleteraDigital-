@@ -53,4 +53,5 @@ collect, and the provider must never be called while the database holds locks.
 - Each deposit adds a payment row, outbox events and, with Stripe, at least one webhook. Webhook ids are kept 30 days,
   well past Stripe's three days of redeliveries.
 - Stripe fees, payouts to the bank and reconciliation against Stripe's reports are not recorded. Withdrawals are
-  still simulated and synchronous; paying out to a user's bank needs Stripe Connect or a SPEI provider.
+  still simulated and synchronous; paying out to a user's bank needs Stripe Connect or a SPEI provider
+  (withdrawals became asynchronous in ADR 0010).
