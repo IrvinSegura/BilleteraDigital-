@@ -30,11 +30,12 @@ public class Payment {
     private Instant expiresAt;
     private String providerPaymentId;
     private String providerRefundId;
+    private UUID receivedEntryId;
     private Instant updatedAt;
 
     private Payment(UUID id, UUID userId, Money amount, String description, String provider, PaymentStatus status,
             String providerReference, String checkoutUrl, Instant expiresAt, String providerPaymentId,
-            String providerRefundId, Instant createdAt, Instant updatedAt, Long version) {
+            String providerRefundId, UUID receivedEntryId, Instant createdAt, Instant updatedAt, Long version) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.userId = Objects.requireNonNull(userId, "userId must not be null");
         this.amount = Objects.requireNonNull(amount, "amount must not be null");
@@ -48,6 +49,7 @@ public class Payment {
         this.expiresAt = expiresAt;
         this.providerPaymentId = providerPaymentId;
         this.providerRefundId = providerRefundId;
+        this.receivedEntryId = receivedEntryId;
         this.version = version;
     }
 
@@ -57,7 +59,7 @@ public class Payment {
             throw new IllegalArgumentException("amount must be positive");
         }
         return new Payment(id, userId, amount, description, provider, PaymentStatus.CREATED, null, null, null, null,
-                null, now, now, null);
+                null, null, now, now, null);
     }
 
     /**
@@ -65,9 +67,10 @@ public class Payment {
      */
     public static Payment restore(UUID id, UUID userId, Money amount, String description, String provider,
             PaymentStatus status, String providerReference, String checkoutUrl, Instant expiresAt,
-            String providerPaymentId, String providerRefundId, Instant createdAt, Instant updatedAt, Long version) {
+            String providerPaymentId, String providerRefundId, UUID receivedEntryId, Instant createdAt,
+            Instant updatedAt, Long version) {
         return new Payment(id, userId, amount, description, provider, status, providerReference, checkoutUrl,
-                expiresAt, providerPaymentId, providerRefundId, createdAt, updatedAt, version);
+                expiresAt, providerPaymentId, providerRefundId, receivedEntryId, createdAt, updatedAt, version);
     }
 
     /**
@@ -106,6 +109,16 @@ public class Payment {
         status = PaymentStatus.SUCCEEDED;
         updatedAt = now;
         return true;
+    }
+
+    /**
+     * Links the ledger entry that recorded the collected money, so its refund can be recorded against it.
+     */
+    public void recordReceipt(UUID entryId) {
+        if (!isCollected() || receivedEntryId != null) {
+            throw new IllegalStateException("Payment " + id + " cannot record a receipt now");
+        }
+        receivedEntryId = Objects.requireNonNull(entryId, "entryId must not be null");
     }
 
     public boolean fail(Instant now) {
@@ -190,6 +203,13 @@ public class Payment {
 
     public String providerRefundId() {
         return providerRefundId;
+    }
+
+    /**
+     * Null until the money is collected, and for payments collected before receipts were recorded.
+     */
+    public UUID receivedEntryId() {
+        return receivedEntryId;
     }
 
     public Instant createdAt() {

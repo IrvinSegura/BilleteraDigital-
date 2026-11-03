@@ -1,11 +1,15 @@
 package com.irvinsegura.wallet.payments.infrastructure.simulated;
 
+import com.irvinsegura.wallet.payments.domain.model.BalanceTransaction;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutSession;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutState;
 import com.irvinsegura.wallet.payments.domain.model.InvalidWebhookException;
 import com.irvinsegura.wallet.payments.domain.model.Payment;
+import com.irvinsegura.wallet.payments.domain.model.ProviderBalance;
 import com.irvinsegura.wallet.payments.domain.model.WebhookNotification;
 import com.irvinsegura.wallet.payments.domain.port.PaymentGateway;
+import java.time.Instant;
+import java.util.List;
 
 /**
  * For development and tests without a provider account: every checkout is paid the moment it is opened, so a
@@ -18,6 +22,12 @@ public class SimulatedPaymentGateway implements PaymentGateway {
     @Override
     public String name() {
         return NAME;
+    }
+
+    // Its money counts as already in the partner bank, like a bank transfer received directly
+    @Override
+    public boolean holdsFunds() {
+        return false;
     }
 
     @Override
@@ -44,5 +54,15 @@ public class SimulatedPaymentGateway implements PaymentGateway {
     @Override
     public WebhookNotification readWebhook(String payload, String signature) {
         throw new InvalidWebhookException("The simulated provider sends no webhooks");
+    }
+
+    @Override
+    public List<BalanceTransaction> balanceTransactionsSince(Instant since) {
+        return List.of();
+    }
+
+    @Override
+    public List<ProviderBalance> balance() {
+        return List.of();
     }
 }

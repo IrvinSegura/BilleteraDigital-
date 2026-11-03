@@ -1,12 +1,17 @@
 package com.irvinsegura.wallet.payments.infrastructure.stripe;
 
 import com.irvinsegura.wallet.payments.PaymentProviderUnavailableException;
+import com.irvinsegura.wallet.payments.domain.model.BalanceTransaction;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutSession;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutState;
 import com.irvinsegura.wallet.payments.domain.model.InvalidWebhookException;
 import com.irvinsegura.wallet.payments.domain.model.Payment;
+import com.irvinsegura.wallet.payments.domain.model.ProviderBalance;
 import com.irvinsegura.wallet.payments.domain.model.WebhookNotification;
 import com.irvinsegura.wallet.payments.domain.port.PaymentGateway;
+import com.irvinsegura.wallet.payments.infrastructure.stripe.StripeObjects.Balance;
+import com.irvinsegura.wallet.payments.infrastructure.stripe.StripeObjects.BalanceTransactionList;
+import com.irvinsegura.wallet.payments.infrastructure.stripe.StripeObjects.BalanceTransactionObject;
 import com.irvinsegura.wallet.payments.infrastructure.stripe.StripeObjects.CheckoutSessionObject;
 import com.irvinsegura.wallet.payments.infrastructure.stripe.StripeObjects.Event;
 import com.irvinsegura.wallet.payments.infrastructure.stripe.StripeObjects.EventEnvelope;
@@ -16,10 +21,17 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -45,6 +57,8 @@ public class StripePaymentGateway implements PaymentGateway {
     public static final String NAME = "STRIPE";
 
     private static final Logger log = LoggerFactory.getLogger(StripePaymentGateway.class);
+    // Stripe's largest page
+    private static final int BALANCE_PAGE_SIZE = 100;
     // Webhook types that settle a checkout; every other type is acknowledged and ignored
     private static final Set<String> CHECKOUT_EVENTS = Set.of("checkout.session.completed",
             "checkout.session.async_payment_succeeded", "checkout.session.expired");
@@ -68,6 +82,11 @@ public class StripePaymentGateway implements PaymentGateway {
     @Override
     public String name() {
         return NAME;
+    }
+
+    @Override
+    public boolean holdsFunds() {
+        return true;
     }
 
     @Override
@@ -155,6 +174,68 @@ public class StripePaymentGateway implements PaymentGateway {
         } catch (JacksonException e) {
             throw new InvalidWebhookException("Unreadable event");
         }
+    }
+
+    @Override
+    public List<BalanceTransaction> balanceTransactionsSince(Instant since) {
+        List<BalanceTransaction> transactions = new ArrayList<>();
+        String startingAfter = null;
+        boolean hasMore = true;
+        // Stripe lists newest first, a page at a time; the whole window is read before anything is recorded
+        while (hasMore) {
+            String after = startingAfter;
+            BalanceTransactionList page = call("list balance transactions", () -> restClient.get()
+                    .uri(uri -> {
+                        uri.path("/v1/balance_transactions")
+                                .queryParam("limit", BALANCE_PAGE_SIZE)
+                                .queryParam("created[gte]", since.getEpochSecond())
+                                .queryParam("expand[]", "data.source");
+                        if (after != null) {
+                            uri.queryParam("starting_after", after);
+                        }
+                        return uri.build();
+                    })
+                    .retrieve()
+                    .body(String.class), BalanceTransactionList.class);
+            List<BalanceTransactionObject> data = page.data() == null ? List.of() : page.data();
+            data.forEach(transaction -> transactions.add(toBalanceTransaction(transaction)));
+            hasMore = page.hasMore() && !data.isEmpty();
+            startingAfter = data.isEmpty() ? null : data.getLast().id();
+        }
+        transactions.sort(Comparator.comparing(BalanceTransaction::createdAt).thenComparing(BalanceTransaction::id));
+        return transactions;
+    }
+
+    @Override
+    public List<ProviderBalance> balance() {
+        Balance balance = call("read the balance", () -> restClient.get()
+                .uri("/v1/balance")
+                .retrieve()
+                .body(String.class), Balance.class);
+        Map<String, Long> totals = new TreeMap<>();
+        Stream.of(balance.available(), balance.pending())
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .forEach(amount -> totals.merge(amount.currency().toUpperCase(Locale.ROOT), amount.amount(),
+                        Long::sum));
+        return totals.entrySet().stream().map(total -> new ProviderBalance(total.getKey(), total.getValue())).toList();
+    }
+
+    private static BalanceTransaction toBalanceTransaction(BalanceTransactionObject transaction) {
+        BalanceTransaction.Type type = switch (transaction.type()) {
+            case "charge", "payment" -> BalanceTransaction.Type.CHARGE;
+            case "refund", "payment_refund" -> BalanceTransaction.Type.REFUND;
+            case "payout" -> BalanceTransaction.Type.PAYOUT;
+            case "payout_failure", "payout_cancel" -> BalanceTransaction.Type.PAYOUT_REVERSAL;
+            case "stripe_fee" -> BalanceTransaction.Type.FEE;
+            case null, default -> BalanceTransaction.Type.OTHER;
+        };
+        // Charges and refunds carry their PaymentIntent, which is what a payment stores
+        String paymentIntent = transaction.source() instanceof Map<?, ?> source
+                && source.get("payment_intent") instanceof String id ? id : null;
+        return new BalanceTransaction(transaction.id(), type, String.valueOf(transaction.type()),
+                transaction.amount(), transaction.fee(), transaction.currency().toUpperCase(Locale.ROOT),
+                paymentIntent, Instant.ofEpochSecond(transaction.created()));
     }
 
     private String returnUrl(String paymentId, String result) {

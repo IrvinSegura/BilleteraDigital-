@@ -1,9 +1,13 @@
 package com.irvinsegura.wallet.payments.domain.port;
 
+import com.irvinsegura.wallet.payments.domain.model.BalanceTransaction;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutSession;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutState;
 import com.irvinsegura.wallet.payments.domain.model.Payment;
+import com.irvinsegura.wallet.payments.domain.model.ProviderBalance;
 import com.irvinsegura.wallet.payments.domain.model.WebhookNotification;
+import java.time.Instant;
+import java.util.List;
 
 /**
  * A payment provider. Every call that changes something at the provider is idempotent per payment, so retrying
@@ -18,6 +22,12 @@ public interface PaymentGateway {
      * Stored with each payment, so payments made through an earlier provider are still recognised.
      */
     String name();
+
+    /**
+     * Whether collected money stays at the provider until it pays it out (Stripe), rather than landing straight in
+     * the partner bank. Only then is the provider's balance followed through {@link #balanceTransactionsSince}.
+     */
+    boolean holdsFunds();
 
     CheckoutSession openCheckout(Payment payment);
 
@@ -39,4 +49,14 @@ public interface PaymentGateway {
      * @throws com.irvinsegura.wallet.payments.domain.model.InvalidWebhookException if it cannot be verified or read
      */
     WebhookNotification readWebhook(String payload, String signature);
+
+    /**
+     * Every movement of the provider's balance created at or after {@code since}, oldest first.
+     */
+    List<BalanceTransaction> balanceTransactionsSince(Instant since);
+
+    /**
+     * What the provider holds now, per currency.
+     */
+    List<ProviderBalance> balance();
 }
