@@ -115,8 +115,9 @@ class DepositSettlement {
         users.authorizeDeposit(deposit.userId());
         // Locks the wallet so a freeze cannot commit while the money is coming in
         WalletInfo wallet = wallets.acceptIncoming(deposit.walletId(), deposit.userId());
+        // The payments module recorded the collected money as unapplied; the deposit applies it to the wallet
         RecordedEntry entry = ledger.record(new NewJournalEntry(DepositService.ENTRY_TYPE, depositId.toString(),
-                ledger.settlementAccount(wallet.currency()), wallet.ledgerAccountId(), deposit.amount()));
+                ledger.unappliedPaymentsAccount(wallet.currency()), wallet.ledgerAccountId(), deposit.amount()));
         // Read inside the same transaction, while the wallet's ledger account is still locked
         deposit.complete(ledger.balanceOf(wallet.ledgerAccountId()), entry.journalEntryId(), entry.postedAt());
         depositRepository.save(deposit);

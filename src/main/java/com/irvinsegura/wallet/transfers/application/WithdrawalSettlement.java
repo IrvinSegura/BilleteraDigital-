@@ -4,6 +4,7 @@ import com.irvinsegura.wallet.accounts.BankAccountInfo;
 import com.irvinsegura.wallet.accounts.BankAccounts;
 import com.irvinsegura.wallet.accounts.WalletInfo;
 import com.irvinsegura.wallet.accounts.Wallets;
+import com.irvinsegura.wallet.ledger.InsufficientFundsException;
 import com.irvinsegura.wallet.ledger.Ledger;
 import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
@@ -73,7 +74,14 @@ class WithdrawalSettlement {
         PayoutResult result = withdrawal.providerReference() == null
                 ? payouts.send(orderFor(withdrawal))
                 : payouts.check(withdrawal.providerReference());
-        return transaction.execute(status -> apply(withdrawalId, result));
+        try {
+            return transaction.execute(status -> apply(withdrawalId, result));
+        } catch (InsufficientFundsException e) {
+            // The bank paid from the settlement account, which the ledger says cannot cover it: capital or the
+            // provider's payouts must fund it first. Kept pending, so the payout job records it once they do.
+            log.error("Settlement cannot cover the payout of withdrawal {}; fund it with capital", withdrawalId);
+            return WithdrawalReceipt.from(withdrawalRepository.findById(withdrawalId).orElseThrow());
+        }
     }
 
     // The bank account may have been removed since; the money still goes where the user chose when asking for it
