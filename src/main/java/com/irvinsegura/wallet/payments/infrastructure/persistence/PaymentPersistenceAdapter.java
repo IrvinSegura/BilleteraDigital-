@@ -55,4 +55,15 @@ class PaymentPersistenceAdapter implements PaymentRepository {
     public List<UUID> findPendingExpiredBefore(Instant expiredBefore, int limit) {
         return jpaRepository.findIdsByStatusExpiringBefore(PaymentStatus.PENDING, expiredBefore, Limit.of(limit));
     }
+
+    @Override
+    public Optional<Payment> findByProviderPaymentId(String provider, String providerPaymentId) {
+        return jpaRepository.findByProviderAndProviderPaymentId(provider, providerPaymentId)
+                .map(PaymentEntity::toDomain);
+    }
+
+    @Override
+    public Optional<Instant> findEarliestCreatedAt(String provider) {
+        return Optional.ofNullable(jpaRepository.findEarliestCreatedAt(provider));
+    }
 }

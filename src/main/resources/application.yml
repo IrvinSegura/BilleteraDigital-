@@ -119,6 +119,10 @@ wallet:
       cron: "0 30 3 * * *"
       retention: 7d
   transfers:
+    # Largest single deposit; Stripe itself refuses more than 999,999.99
+    max-deposit:
+      MXN: 100000.00
+      USD: 5000.00
     # Retries with the same key after this are treated as new requests
     idempotency-key-cleanup:
       cron: "0 45 3 * * *"
@@ -160,6 +164,13 @@ wallet:
       check-interval: 5m
       abandon-after: 10m
       expiry-grace: 10m
+    # Follows the provider's balance (Stripe only): fees and payouts to the partner bank are recorded in the ledger.
+    # Each run reads again from a little before the newest movement it knows; a charge whose payment is not
+    # collected here after match-window is left for a person
+    provider-sync:
+      interval: 15m
+      overlap: 1h
+      match-window: 1d
     # Stripe redelivers an event for up to 3 days; ids are kept well past that so a late copy is still skipped
     webhook-event-cleanup:
       cron: "0 50 3 * * *"
