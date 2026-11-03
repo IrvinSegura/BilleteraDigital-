@@ -13,6 +13,7 @@ import com.irvinsegura.wallet.identity.UserLockedOut;
 import com.irvinsegura.wallet.identity.UserRegistered;
 import com.irvinsegura.wallet.identity.UserStatusChanged;
 import com.irvinsegura.wallet.identity.UserUnlocked;
+import com.irvinsegura.wallet.ledger.CapitalContributed;
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.DepositRejected;
@@ -31,6 +32,7 @@ class AuditEventListener {
 
     private static final String USER = "USER";
     private static final String WALLET = "WALLET";
+    private static final String LEDGER_ENTRY = "LEDGER_ENTRY";
 
     private final AuditLogRepository auditLog;
 
@@ -97,6 +99,14 @@ class AuditEventListener {
         auditLog.append(AuditEntry.of("BANK_ACCOUNT_REMOVED", event.bankAccountId().toString(), event.occurredAt(),
                 event.ownerId(), USER, event.ownerId(), "bank account %s: CLABE ending %s".formatted(
                         event.bankAccountId(), event.clabeLastFour())));
+    }
+
+    // Money the platform itself put in; the reference ties it to the bank wire
+    @ApplicationModuleListener
+    void on(CapitalContributed event) {
+        auditLog.append(AuditEntry.of("CAPITAL_CONTRIBUTED", event.journalEntryId().toString(), event.occurredAt(),
+                event.contributedBy(), LEDGER_ENTRY, event.journalEntryId(), "%s, reference %s, reason: %s".formatted(
+                        money(event.amountMinor(), event.currency()), event.reference(), event.reason())));
     }
 
     @ApplicationModuleListener
