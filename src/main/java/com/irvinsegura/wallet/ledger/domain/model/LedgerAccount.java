@@ -17,6 +17,12 @@ public class LedgerAccount {
     public static final String SETTLEMENT = "SETTLEMENT";
     // Money already taken from a wallet for a payout the bank has not confirmed yet
     public static final String PAYOUTS_IN_TRANSIT = "PAYOUTS_IN_TRANSIT";
+    // Money the payment provider collected and holds until it pays it out to the partner bank
+    public static final String PROVIDER_CLEARING = "PROVIDER_CLEARING";
+    // Money collected from payers that no wallet has received yet, or that is being refunded
+    public static final String UNAPPLIED_PAYMENTS = "UNAPPLIED_PAYMENTS";
+    public static final String PROVIDER_FEES = "PROVIDER_FEES";
+    public static final String PLATFORM_CAPITAL = "PLATFORM_CAPITAL";
 
     private final UUID id;
     private final AccountType type;

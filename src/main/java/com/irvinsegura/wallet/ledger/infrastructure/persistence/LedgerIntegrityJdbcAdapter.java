@@ -42,17 +42,17 @@ class LedgerIntegrityJdbcAdapter implements LedgerIntegrityChecks {
 
     @Override
     public List<Discrepancy> findBalanceMismatches(int limit) {
-        // A posting on the account's normal side (debit for assets, credit for liabilities) raises the balance
+        // A posting on the account's normal side (debit for assets and expenses, credit for the rest) raises it
         return jdbcClient.sql("""
-                        SELECT a.id, a.currency, a.balance_minor AS actual,
-                               COALESCE(SUM(CASE WHEN (a.type = 'ASSET') = (p.side = 'DEBIT')
-                                                 THEN p.amount_minor ELSE -p.amount_minor END), 0) AS expected
-                        FROM ledger_accounts a
-                        LEFT JOIN postings p ON p.account_id = a.id
-                        GROUP BY a.id, a.currency, a.balance_minor
-                        HAVING a.balance_minor <> COALESCE(SUM(CASE WHEN (a.type = 'ASSET') = (p.side = 'DEBIT')
-                                                               THEN p.amount_minor ELSE -p.amount_minor END), 0)
-                        ORDER BY a.id
+                        SELECT id, currency, actual, expected
+                        FROM (SELECT a.id, a.currency, a.balance_minor AS actual,
+                                     COALESCE(SUM(CASE WHEN (a.type IN ('ASSET', 'EXPENSE')) = (p.side = 'DEBIT')
+                                                       THEN p.amount_minor ELSE -p.amount_minor END), 0) AS expected
+                              FROM ledger_accounts a
+                              LEFT JOIN postings p ON p.account_id = a.id
+                              GROUP BY a.id, a.currency, a.balance_minor) net
+                        WHERE actual <> expected
+                        ORDER BY id
                         LIMIT :limit""")
                 .param("limit", limit)
                 .query((rs, rowNum) -> new Discrepancy(Discrepancy.Kind.ACCOUNT_BALANCE,
@@ -85,19 +85,19 @@ class LedgerIntegrityJdbcAdapter implements LedgerIntegrityChecks {
 
     @Override
     public List<Discrepancy> findTrialBalanceGaps() {
-        // Every entry moves the same amount on both sides, so per currency what the platform holds (assets) must
-        // equal what it owes users (liabilities)
+        // Every entry moves the same amount on both sides, so per currency the debit-normal balances (what the
+        // platform holds plus what it spent) must equal the credit-normal ones (what it owes plus its capital)
         return jdbcClient.sql("""
                         SELECT currency,
-                               COALESCE(SUM(balance_minor) FILTER (WHERE type = 'ASSET'), 0) AS assets,
-                               COALESCE(SUM(balance_minor) FILTER (WHERE type = 'LIABILITY'), 0) AS liabilities
+                               COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('ASSET', 'EXPENSE')), 0) AS debits,
+                               COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('LIABILITY', 'EQUITY')), 0) AS credits
                         FROM ledger_accounts
                         GROUP BY currency
-                        HAVING COALESCE(SUM(balance_minor) FILTER (WHERE type = 'ASSET'), 0)
-                               <> COALESCE(SUM(balance_minor) FILTER (WHERE type = 'LIABILITY'), 0)
+                        HAVING COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('ASSET', 'EXPENSE')), 0)
+                               <> COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('LIABILITY', 'EQUITY')), 0)
                         ORDER BY currency""")
                 .query((rs, rowNum) -> new Discrepancy(Discrepancy.Kind.TRIAL_BALANCE, null,
-                        rs.getString("currency"), rs.getLong("assets"), rs.getLong("liabilities")))
+                        rs.getString("currency"), rs.getLong("debits"), rs.getLong("credits")))
                 .list();
     }
 }

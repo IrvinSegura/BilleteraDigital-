@@ -7,7 +7,11 @@ public enum AccountType {
     // What the platform holds, e.g. cash at the partner bank
     ASSET(Side.DEBIT),
     // What the platform owes, e.g. user wallet balances
-    LIABILITY(Side.CREDIT);
+    LIABILITY(Side.CREDIT),
+    // What the platform's owners put in, e.g. capital that funds payouts before the provider pays out deposits
+    EQUITY(Side.CREDIT),
+    // What the platform spent, e.g. the payment provider's fees
+    EXPENSE(Side.DEBIT);
 
     private final Side normalSide;
 

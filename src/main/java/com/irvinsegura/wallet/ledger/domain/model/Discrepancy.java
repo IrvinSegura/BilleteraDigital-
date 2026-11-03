@@ -17,7 +17,7 @@ public record Discrepancy(Kind kind, UUID subjectId, String currency, long expec
         ACCOUNT_BALANCE,
         // Debits differ from credits, fewer than two postings, or mixed currencies in one entry
         UNBALANCED_ENTRY,
-        // Total asset balances differ from total liability balances in one currency
+        // Assets plus expenses differ from liabilities plus equity in one currency
         TRIAL_BALANCE
     }
 
