@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Keys only need to outlive client retries. After the retention period a reused key runs as a new request, which
- * is the documented contract (ADR 0006); the operations themselves stay in their own tables and the ledger.
+ * is the documented contract; the operations themselves stay in their own tables and the ledger.
  */
 @Service
 public class IdempotencyKeyCleanupService {
