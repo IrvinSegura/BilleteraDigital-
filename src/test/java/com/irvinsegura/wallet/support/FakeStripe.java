@@ -7,7 +7,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,11 +17,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * The parts of Stripe's API the application calls, served from memory on a local port: Checkout Sessions (create,
- * read, expire) and refunds. Tests decide what the payer does with {@link #pay} and build the webhooks Stripe would
- * send with {@link #event}.
+ * read, expire), refunds, balance transactions and the balance. Tests decide what the payer does with {@link #pay},
+ * build the webhooks Stripe would send with {@link #event}, and add balance movements with
+ * {@link #addBalanceTransaction}.
  */
 public final class FakeStripe implements AutoCloseable {
 
@@ -27,6 +31,8 @@ public final class FakeStripe implements AutoCloseable {
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private final List<String> refundedPaymentIntents = new CopyOnWriteArrayList<>();
     private final AtomicBoolean down = new AtomicBoolean();
+    private final List<BalanceTransaction> balanceTransactions = new CopyOnWriteArrayList<>();
+    private final Map<String, Long> balance = new ConcurrentHashMap<>();
 
     public FakeStripe() {
         try {
@@ -90,6 +96,30 @@ public final class FakeStripe implements AutoCloseable {
     }
 
     /**
+     * A movement of the balance, created after every earlier one, e.g. {@code ("charge", 10000, 380, "mxn",
+     * "pi_...")} or {@code ("payout", -5000, 0, "mxn", null)}. Returns its id.
+     */
+    public synchronized String addBalanceTransaction(String type, long amount, long fee, String currency,
+            String paymentIntent) {
+        String id = "txn_" + UUID.randomUUID().toString().replace("-", "");
+        // Stripe's times are in seconds; a second apart keeps the order of movements that depend on each other,
+        // such as a payout and its failure
+        long created = balanceTransactions.isEmpty()
+                ? Instant.now().getEpochSecond()
+                : Math.max(Instant.now().getEpochSecond(), balanceTransactions.getLast().created() + 1);
+        balanceTransactions.add(new BalanceTransaction(id, type, amount, fee, currency, created,
+                balanceTransactions.size(), paymentIntent));
+        return id;
+    }
+
+    /**
+     * What {@code GET /v1/balance} reports as available for the currency (lowercase, as Stripe writes it).
+     */
+    public void setBalance(String currency, long amount) {
+        balance.put(currency, amount);
+    }
+
+    /**
      * The webhook body Stripe sends for an event about this session, e.g. {@code checkout.session.completed}.
      */
     public String event(String type, String sessionId) {
@@ -122,6 +152,15 @@ public final class FakeStripe implements AutoCloseable {
                 }
                 session.status = "expired";
                 respond(exchange, 200, session.toJson());
+            } else if (method.equals("GET") && path.equals("/v1/balance_transactions")) {
+                respond(exchange, 200, balanceTransactionPage(parseForm(exchange.getRequestURI().getRawQuery())));
+            } else if (method.equals("GET") && path.equals("/v1/balance")) {
+                String available = balance.entrySet().stream()
+                        .map(entry -> "{\"amount\": %d, \"currency\": \"%s\"}".formatted(entry.getValue(),
+                                entry.getKey()))
+                        .collect(Collectors.joining(", "));
+                respond(exchange, 200, "{\"object\": \"balance\", \"available\": [%s], \"pending\": []}"
+                        .formatted(available));
             } else if (method.equals("POST") && path.equals("/v1/refunds")) {
                 refundedPaymentIntents.add(form.get("payment_intent"));
                 respond(exchange, 200, "{\"id\": \"re_%s\", \"object\": \"refund\"}".formatted(UUID.randomUUID()));
@@ -129,6 +168,31 @@ public final class FakeStripe implements AutoCloseable {
                 respond(exchange, 404, "{\"error\": {\"message\": \"Unknown request\"}}");
             }
         }
+    }
+
+    // Newest first, a page at a time, like Stripe
+    private String balanceTransactionPage(Map<String, String> query) {
+        long since = Long.parseLong(query.getOrDefault("created[gte]", "0"));
+        int limit = Integer.parseInt(query.getOrDefault("limit", "10"));
+        List<BalanceTransaction> matching = balanceTransactions.stream()
+                .filter(transaction -> transaction.created() >= since)
+                .sorted(Comparator.comparingLong(BalanceTransaction::created)
+                        .thenComparingInt(BalanceTransaction::sequence)
+                        .reversed())
+                .toList();
+        String after = query.get("starting_after");
+        int start = 0;
+        if (after != null) {
+            for (int i = 0; i < matching.size(); i++) {
+                if (matching.get(i).id().equals(after)) {
+                    start = i + 1;
+                }
+            }
+        }
+        List<BalanceTransaction> page = matching.subList(start, Math.min(matching.size(), start + limit));
+        return "{\"object\": \"list\", \"has_more\": %s, \"data\": [%s]}".formatted(
+                start + limit < matching.size(),
+                page.stream().map(BalanceTransaction::toJson).collect(Collectors.joining(", ")));
     }
 
     private static void respond(HttpExchange exchange, int status, String body) throws IOException {
@@ -142,7 +206,7 @@ public final class FakeStripe implements AutoCloseable {
 
     private static Map<String, String> parseForm(String body) {
         Map<String, String> form = new HashMap<>();
-        if (body.isEmpty()) {
+        if (body == null || body.isEmpty()) {
             return form;
         }
         for (String pair : body.split("&")) {
@@ -156,6 +220,21 @@ public final class FakeStripe implements AutoCloseable {
     @Override
     public void close() {
         server.stop(0);
+    }
+
+    private record BalanceTransaction(String id, String type, long amount, long fee, String currency, long created,
+            int sequence, String paymentIntent) {
+
+        // Source expanded, as the application asks with expand[]=data.source
+        private String toJson() {
+            String source = paymentIntent == null
+                    ? "\"po_%s\"".formatted(id)
+                    : "{\"id\": \"ch_%s\", \"payment_intent\": \"%s\"}".formatted(id, paymentIntent);
+            return """
+                    {"id": "%s", "object": "balance_transaction", "type": "%s", "amount": %d, "fee": %d,
+                     "currency": "%s", "created": %d, "source": %s}"""
+                    .formatted(id, type, amount, fee, currency, created, source);
+        }
     }
 
     private static final class Session {

@@ -40,6 +40,11 @@ class LedgerAccountPersistenceAdapter implements LedgerAccountRepository {
     }
 
     @Override
+    public List<LedgerAccount> findSystemAccounts() {
+        return jpaRepository.findSystemAccountRows().stream().map(LedgerAccountRow::toDomain).toList();
+    }
+
+    @Override
     public void save(LedgerAccount account) {
         jpaRepository.save(LedgerAccountEntity.fromDomain(account));
     }

@@ -29,4 +29,10 @@ interface LedgerAccountJpaRepository extends JpaRepository<LedgerAccountEntity, 
             from LedgerAccountEntity a where a.systemCode = :systemCode and a.currency = :currency""")
     Optional<LedgerAccountRow> findSystemAccountRow(@Param("systemCode") String systemCode,
             @Param("currency") String currency);
+
+    @Query("""
+            select new com.irvinsegura.wallet.ledger.infrastructure.persistence.LedgerAccountRow(
+                a.id, a.type, a.currency, a.balanceMinor, a.systemCode, a.createdAt, a.version)
+            from LedgerAccountEntity a where a.systemCode is not null order by a.systemCode, a.currency""")
+    List<LedgerAccountRow> findSystemAccountRows();
 }

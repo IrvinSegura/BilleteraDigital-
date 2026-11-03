@@ -19,5 +19,10 @@ public interface LedgerAccountRepository {
 
     Optional<LedgerAccount> findSystemAccount(String systemCode, Currency currency);
 
+    /**
+     * Ordered by code, then currency.
+     */
+    List<LedgerAccount> findSystemAccounts();
+
     void save(LedgerAccount account);
 }

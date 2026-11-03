@@ -1154,6 +1154,216 @@
     },
     {
       "type": "row",
+      "title": "Payment provider",
+      "id": 26,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Unmatched provider movements",
+      "id": 27,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "exemplar": false,
+          "range": true,
+          "instant": false,
+          "expr": "max(wallet_provider_transactions{status=\"unmatched\"})",
+          "legendFormat": "__auto"
+        }
+      ],
+      "description": "Stripe balance movements the application could not match (disputes, adjustments, dashboard refunds). See GET /api/v1/admin/payments/provider-transactions.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Provider movements waiting",
+      "id": 28,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 4,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "exemplar": false,
+          "range": true,
+          "instant": false,
+          "expr": "max(wallet_provider_transactions{status=\"pending\"})",
+          "legendFormat": "__auto"
+        }
+      ],
+      "description": "Read from Stripe but not recorded yet, e.g. a charge whose payment webhook has not arrived.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Stripe balance minus clearing account (minor units)",
+      "id": 29,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 8,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "exemplar": false,
+          "range": true,
+          "instant": false,
+          "expr": "max by (currency) (wallet_provider_balance_difference)",
+          "legendFormat": "{{currency}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Zero once every movement is recorded. The ProviderBalanceMismatch alert fires when it stays off for two hours."
+    },
+    {
+      "type": "row",
       "title": "Runtime",
       "id": 18,
       "collapsed": false,
@@ -1161,7 +1371,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 45
       },
       "panels": []
     },
@@ -1177,7 +1387,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 39
+        "y": 46
       },
       "fieldConfig": {
         "defaults": {
@@ -1261,7 +1471,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 39
+        "y": 46
       },
       "fieldConfig": {
         "defaults": {
@@ -1333,7 +1543,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 39
+        "y": 46
       },
       "fieldConfig": {
         "defaults": {

@@ -46,6 +46,24 @@ groups:
         annotations:
           summary: "{{ $value }} payouts refused by the bank in the last hour"
 
+      - alert: ProviderBalanceMismatch
+        # Stays off while a payment's webhook is on its way; hours off means a movement was never recorded
+        expr: max by (currency) (abs(wallet_provider_balance_difference)) > 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The payment provider's {{ $labels.currency }} balance differs from the clearing account"
+          description: Check GET /api/v1/admin/payments/provider-transactions for unmatched movements.
+
+      - alert: ProviderTransactionsUnmatched
+        expr: wallet_provider_transactions{status="unmatched"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} payment provider movements need a person"
+          description: Disputes, adjustments or refunds made outside the application; see the admin endpoint.
+
       - alert: HighServerErrorRate
         expr: >
           sum(rate(http_server_requests_seconds_count{application="digital-wallet", status=~"5.."}[5m]))

@@ -1,0 +1,15 @@
+package com.irvinsegura.wallet.transfers.infrastructure.config;
+
+import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
+import java.util.Map;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
+
+/**
+ * @param maxDeposit largest single deposit, by ISO currency code, e.g. {@code MXN: 100000.00}
+ */
+@Validated
+@ConfigurationProperties("wallet.transfers")
+public record TransfersProperties(@NotNull Map<String, BigDecimal> maxDeposit) {
+}

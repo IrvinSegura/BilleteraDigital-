@@ -126,6 +126,10 @@ class WalletDepositIntegrationTest {
         api.deposit(user, walletId, "10.505")
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INVALID_AMOUNT"));
+        // Above the largest single deposit (100,000.00 MXN), which also stays under Stripe's own maximum
+        api.deposit(user, walletId, "100000.01")
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("DEPOSIT_TOO_LARGE"));
     }
 
     @Test

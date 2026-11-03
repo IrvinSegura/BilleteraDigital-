@@ -54,6 +54,9 @@ class PaymentEntity {
     @Column(name = "provider_refund_id")
     private String providerRefundId;
 
+    @Column(name = "received_entry_id")
+    private UUID receivedEntryId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -80,6 +83,7 @@ class PaymentEntity {
         entity.expiresAt = payment.expiresAt();
         entity.providerPaymentId = payment.providerPaymentId();
         entity.providerRefundId = payment.providerRefundId();
+        entity.receivedEntryId = payment.receivedEntryId();
         entity.createdAt = payment.createdAt();
         entity.updatedAt = payment.updatedAt();
         entity.version = payment.version();
@@ -88,7 +92,7 @@ class PaymentEntity {
 
     Payment toDomain() {
         return Payment.restore(id, userId, Money.ofMinor(amountMinor, currency), description, provider, status,
-                providerReference, checkoutUrl, expiresAt, providerPaymentId, providerRefundId, createdAt, updatedAt,
-                version);
+                providerReference, checkoutUrl, expiresAt, providerPaymentId, providerRefundId, receivedEntryId,
+                createdAt, updatedAt, version);
     }
 }

@@ -11,6 +11,7 @@ import com.irvinsegura.wallet.shared.domain.InvalidAmountException;
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.domain.model.Deposit;
 import com.irvinsegura.wallet.transfers.domain.model.DepositNotFoundException;
+import com.irvinsegura.wallet.transfers.domain.model.DepositPolicy;
 import com.irvinsegura.wallet.transfers.domain.model.DepositStatus;
 import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
 import com.irvinsegura.wallet.transfers.domain.port.DepositRepository;
@@ -35,16 +36,19 @@ public class DepositService {
     private final IdempotentExecutor idempotentExecutor;
     private final Payments payments;
     private final DepositSettlement settlement;
+    private final DepositPolicy depositPolicy;
     private final Clock clock;
 
     DepositService(Wallets wallets, UserDirectory users, DepositRepository depositRepository,
-            IdempotentExecutor idempotentExecutor, Payments payments, DepositSettlement settlement, Clock clock) {
+            IdempotentExecutor idempotentExecutor, Payments payments, DepositSettlement settlement,
+            DepositPolicy depositPolicy, Clock clock) {
         this.wallets = wallets;
         this.users = users;
         this.depositRepository = depositRepository;
         this.idempotentExecutor = idempotentExecutor;
         this.payments = payments;
         this.settlement = settlement;
+        this.depositPolicy = depositPolicy;
         this.clock = clock;
     }
 
@@ -85,6 +89,7 @@ public class DepositService {
         if (amount.isZero()) {
             throw new InvalidAmountException("Amount must be greater than zero");
         }
+        depositPolicy.check(amount);
         Deposit deposit = Deposit.open(depositId, command.userId(), wallet.id(), amount, clock.instant());
         depositRepository.save(deposit);
         // Same id for both, so the payment's outcome leads straight back to this deposit

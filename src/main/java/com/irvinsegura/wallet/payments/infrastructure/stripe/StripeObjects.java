@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.payments.infrastructure.stripe;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.List;
 
 /**
  * The few fields read from Stripe's JSON. Unknown fields are ignored, so new API versions adding fields break
@@ -39,6 +40,27 @@ final class StripeObjects {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Refund(String id) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BalanceTransactionList(List<BalanceTransactionObject> data, @JsonProperty("has_more") boolean hasMore) {
+    }
+
+    /**
+     * @param source the expanded object behind it (a charge, refund or payout) read as a map, since it may also be
+     *               a plain id
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BalanceTransactionObject(String id, String type, long amount, long fee, String currency, long created,
+            Object source) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Balance(List<BalanceAmount> available, List<BalanceAmount> pending) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BalanceAmount(long amount, String currency) {
     }
 
     // Only the envelope, read first so events of other types are never parsed as a checkout session

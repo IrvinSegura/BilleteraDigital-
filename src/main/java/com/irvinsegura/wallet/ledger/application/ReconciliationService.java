@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Proves the ledger is internally consistent: every cached balance equals the net of its postings, every journal
- * entry balances, and per currency the platform's assets equal what it owes users. Postings are append-only, so
+ * entry balances, and per currency assets plus expenses equal liabilities plus equity. Postings are append-only, so
  * a mismatch means a bug or a change made outside the application, never a normal state.
  */
 @Service

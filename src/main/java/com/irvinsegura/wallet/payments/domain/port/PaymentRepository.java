@@ -27,4 +27,14 @@ public interface PaymentRepository {
      * Ids of payments still waiting for the payer although their checkout expired before {@code expiredBefore}.
      */
     List<UUID> findPendingExpiredBefore(Instant expiredBefore, int limit);
+
+    /**
+     * The payment whose collected money has this provider id (a Stripe PaymentIntent).
+     */
+    Optional<Payment> findByProviderPaymentId(String provider, String providerPaymentId);
+
+    /**
+     * When the first payment through this provider was registered; nothing at the provider before it concerns us.
+     */
+    Optional<Instant> findEarliestCreatedAt(String provider);
 }

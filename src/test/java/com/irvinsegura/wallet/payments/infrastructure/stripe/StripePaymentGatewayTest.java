@@ -2,6 +2,8 @@ package com.irvinsegura.wallet.payments.infrastructure.stripe;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -11,17 +13,20 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.irvinsegura.wallet.payments.PaymentProviderUnavailableException;
+import com.irvinsegura.wallet.payments.domain.model.BalanceTransaction;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutSession;
 import com.irvinsegura.wallet.payments.domain.model.CheckoutState;
 import com.irvinsegura.wallet.payments.domain.model.InvalidWebhookException;
 import com.irvinsegura.wallet.payments.domain.model.Payment;
 import com.irvinsegura.wallet.payments.domain.model.PaymentStatus;
+import com.irvinsegura.wallet.payments.domain.model.ProviderBalance;
 import com.irvinsegura.wallet.payments.domain.model.WebhookNotification;
 import com.irvinsegura.wallet.shared.domain.Money;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -46,6 +51,52 @@ class StripePaymentGatewayTest {
     private final UUID paymentId = UUID.randomUUID();
     private final Payment payment = Payment.register(paymentId, UUID.randomUUID(), Money.ofMinor(10050, "MXN"),
             "Deposit to your MXN wallet", StripePaymentGateway.NAME, NOW);
+
+    @Test
+    void readsEveryPageOfBalanceTransactionsOldestFirst() {
+        long since = NOW.minus(Duration.ofDays(1)).getEpochSecond();
+        stripe.expect(requestTo(startsWith(API + "/v1/balance_transactions?limit=100&created%5Bgte%5D=" + since)))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"object": "list", "has_more": true, "data": [
+                          {"id": "txn_3", "type": "payout", "amount": -5000, "fee": 0, "currency": "mxn",
+                           "created": %d, "source": {"id": "po_1", "object": "payout"}},
+                          {"id": "txn_2", "type": "refund", "amount": -1000, "fee": 0, "currency": "mxn",
+                           "created": %d, "source": {"id": "re_1", "payment_intent": "pi_2"}}]}"""
+                        .formatted(since + 30, since + 20), MediaType.APPLICATION_JSON));
+        stripe.expect(requestTo(containsString("starting_after=txn_2")))
+                .andRespond(withSuccess("""
+                        {"object": "list", "has_more": false, "data": [
+                          {"id": "txn_1", "type": "charge", "amount": 10050, "fee": 380, "currency": "mxn",
+                           "created": %d, "source": {"id": "ch_1", "payment_intent": "pi_1"}},
+                          {"id": "txn_0", "type": "adjustment", "amount": -100, "fee": 0, "currency": "mxn",
+                           "created": %d, "source": "du_1"}]}""".formatted(since + 10, since),
+                        MediaType.APPLICATION_JSON));
+
+        List<BalanceTransaction> transactions = gateway.balanceTransactionsSince(Instant.ofEpochSecond(since));
+
+        assertThat(transactions).extracting(BalanceTransaction::id).containsExactly("txn_0", "txn_1", "txn_2",
+                "txn_3");
+        assertThat(transactions).extracting(BalanceTransaction::type).containsExactly(BalanceTransaction.Type.OTHER,
+                BalanceTransaction.Type.CHARGE, BalanceTransaction.Type.REFUND, BalanceTransaction.Type.PAYOUT);
+        assertThat(transactions.get(1).providerPaymentId()).isEqualTo("pi_1");
+        assertThat(transactions.get(1).feeMinor()).isEqualTo(380);
+        assertThat(transactions.get(1).currency()).isEqualTo("MXN");
+        assertThat(transactions.get(3).providerPaymentId()).isNull();
+        stripe.verify();
+    }
+
+    @Test
+    void addsAvailableAndPendingBalances() {
+        stripe.expect(requestTo(API + "/v1/balance"))
+                .andRespond(withSuccess("""
+                        {"object": "balance", "available": [{"amount": 7000, "currency": "mxn"}],
+                         "pending": [{"amount": 3000, "currency": "mxn"}, {"amount": -50, "currency": "usd"}]}""",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(gateway.balance()).containsExactly(new ProviderBalance("MXN", 10_000),
+                new ProviderBalance("USD", -50));
+    }
 
     @Test
     void opensACardCheckoutForTheExactAmount() {
@@ -106,7 +157,7 @@ class StripePaymentGatewayTest {
     void refundsThePaymentIntentOnce() {
         Payment paid = Payment.restore(paymentId, payment.userId(), payment.amount(), payment.description(),
                 StripePaymentGateway.NAME, PaymentStatus.REFUND_PENDING, "cs_test_1", null, null, "pi_test_1", null,
-                NOW, NOW, 1L);
+                null, NOW, NOW, 1L);
         stripe.expect(requestTo(API + "/v1/refunds"))
                 .andExpect(header("Idempotency-Key", "refund-" + paymentId))
                 .andExpect(content().formDataContains(Map.of("payment_intent", "pi_test_1")))
