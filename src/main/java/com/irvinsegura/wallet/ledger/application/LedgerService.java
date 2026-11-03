@@ -60,6 +60,24 @@ public class LedgerService implements Ledger {
         return systemAccount(LedgerAccount.PAYOUTS_IN_TRANSIT, currency);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public UUID providerClearingAccount(Currency currency) {
+        return systemAccount(LedgerAccount.PROVIDER_CLEARING, currency);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UUID unappliedPaymentsAccount(Currency currency) {
+        return systemAccount(LedgerAccount.UNAPPLIED_PAYMENTS, currency);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UUID providerFeesAccount(Currency currency) {
+        return systemAccount(LedgerAccount.PROVIDER_FEES, currency);
+    }
+
     private UUID systemAccount(String systemCode, Currency currency) {
         return accountRepository.findSystemAccount(systemCode, currency)
                 .map(LedgerAccount::id)

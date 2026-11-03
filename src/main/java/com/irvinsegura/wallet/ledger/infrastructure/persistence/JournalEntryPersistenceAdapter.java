@@ -29,6 +29,11 @@ class JournalEntryPersistenceAdapter implements JournalEntryRepository {
     }
 
     @Override
+    public boolean existsByTypeAndReference(String type, String reference) {
+        return journalEntryJpaRepository.existsByTypeAndReference(type, reference);
+    }
+
+    @Override
     public MovementSlice findMovements(UUID accountId, int page, int size) {
         Slice<MovementRow> slice = postingJpaRepository.findMovements(accountId, PageRequest.of(page, size));
         return new MovementSlice(slice.getContent().stream().map(MovementRow::toDomain).toList(), slice.hasNext());

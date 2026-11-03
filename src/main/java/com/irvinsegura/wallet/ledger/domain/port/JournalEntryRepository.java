@@ -9,6 +9,8 @@ public interface JournalEntryRepository {
 
     void save(JournalEntry entry);
 
+    boolean existsByTypeAndReference(String type, String reference);
+
     /**
      * Movements of one account, newest first.
      */
