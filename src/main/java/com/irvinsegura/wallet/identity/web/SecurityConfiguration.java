@@ -3,11 +3,20 @@ package com.irvinsegura.wallet.identity.web;
 import com.irvinsegura.wallet.identity.domain.model.AccessToken;
 import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
+import jakarta.servlet.http.HttpServletRequest;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -19,6 +28,8 @@ import org.springframework.security.oauth2.server.resource.web.access.BearerToke
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -37,13 +48,19 @@ class SecurityConfiguration {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver,
-            Environment environment) throws Exception {
+            Environment environment,
+            @Value("${wallet.identity.admin-requires-two-factor}") boolean adminRequiresTwoFactor,
+            @Value("${wallet.management.scrape-password:}") String scrapePassword) throws Exception {
         AuthenticationEntryPoint entryPoint = problemDetailsEntryPoint(exceptionResolver);
         AccessDeniedHandler accessDeniedHandler = problemDetailsAccessDeniedHandler(exceptionResolver);
         RequestMatcher managementPort = managementPortMatcher(environment);
         http
-                // No cookies or server sessions: tokens travel in the Authorization header, so CSRF does not apply
+                // No server sessions: access tokens travel in the Authorization header, and the refresh token
+                // cookie is only accepted with a custom header that a cross-site request cannot add
+                // (see RefreshTokenCookies)
                 .csrf(AbstractHttpConfigurer::disable)
+                // Origins from wallet.web.cors.allowed-origins; preflight requests are answered before authentication
+                .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
@@ -52,8 +69,9 @@ class SecurityConfiguration {
                                 "/api/v1/auth/password-reset/confirm").permitAll()
                         // Called by the payment provider, which proves itself with a signature instead of a token
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/webhooks/**").permitAll()
-                        // The management port is reachable only from inside the network (Prometheus, probes)
-                        .requestMatchers(managementPort).permitAll()
+                        // The management port is reachable only from inside the network: probes are open, and
+                        // metrics and module details also need the scrape password where one is set
+                        .requestMatchers(managementPort).access(scrapeAccess(scrapePassword))
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
                         // Without a separate management port, metrics and module details are for admins only
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
@@ -70,6 +88,10 @@ class SecurityConfiguration {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(accessDeniedHandler));
+        if (adminRequiresTwoFactor) {
+            // After authorization, so only administrators already allowed in are checked
+            http.addFilterAfter(new AdminTwoFactorFilter(exceptionResolver), AuthorizationFilter.class);
+        }
         return http.build();
     }
 
@@ -81,6 +103,28 @@ class SecurityConfiguration {
             return request -> false;
         }
         return request -> request.getLocalPort() == managementPort;
+    }
+
+    // HTTP Basic as user "prometheus", which Prometheus sends with basic_auth; a bearer token would be read as a JWT
+    private static AuthorizationManager<RequestAuthorizationContext> scrapeAccess(String password) {
+        byte[] expected = ("prometheus:" + password).getBytes(StandardCharsets.UTF_8);
+        return (authentication, context) -> {
+            HttpServletRequest request = context.getRequest();
+            String path = request.getRequestURI();
+            if (password.isBlank() || path.startsWith("/actuator/health") || path.equals("/actuator/info")) {
+                return new AuthorizationDecision(true);
+            }
+            String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+            if (header == null || !header.regionMatches(true, 0, "Basic ", 0, 6)) {
+                return new AuthorizationDecision(false);
+            }
+            try {
+                byte[] given = Base64.getDecoder().decode(header.substring(6).strip());
+                return new AuthorizationDecision(MessageDigest.isEqual(given, expected));
+            } catch (IllegalArgumentException e) {
+                return new AuthorizationDecision(false);
+            }
+        };
     }
 
     private static JwtAuthenticationConverter jwtAuthenticationConverter() {
