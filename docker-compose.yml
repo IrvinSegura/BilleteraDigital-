@@ -1,7 +1,7 @@
-# `docker compose up -d` starts the database and Mailpit (emails at http://localhost:8025) for running the app from
-# the IDE.
+# `docker compose up -d` starts the database for running the app from the IDE. Emails go out through Gmail with the
+# credentials in .env (see .env.example).
 # `docker compose --profile app up -d --build` also builds and runs the application container.
-# `docker compose --profile observability up -d` adds Prometheus, Tempo and Grafana (http://localhost:3000).
+# `docker compose --profile observability up -d` adds Prometheus, Tempo and Grafana (http://localhost:3030).
 services:
   postgres:
     image: postgres:17-alpine
@@ -23,21 +23,12 @@ services:
       timeout: 3s
       retries: 10
 
-  # Catches every email the app sends; nothing reaches real inboxes
-  mailpit:
-    image: axllent/mailpit:v1.31.6
-    ports:
-      - "1025:1025"
-      - "8025:8025"
-
   app:
     profiles: [app]
     build: .
     depends_on:
       postgres:
         condition: service_healthy
-      mailpit:
-        condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:postgresql://postgres:5432/wallet
@@ -47,21 +38,34 @@ services:
       DB_APP_PASSWORD: ${DB_APP_PASSWORD:-wallet_app_dev}
       # Local runs only: real deployments mount the keys and set JWT_PRIVATE_KEY_LOCATION / JWT_PUBLIC_KEY_LOCATION
       JWT_GENERATE_KEYS_IF_MISSING: "true"
+      # Local runs only, the same development key as application-dev.yml; real deployments use their own secret
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY:-ZGV2LW9ubHktdHdvLWZhY3Rvci1rZXktMzItYnl0ZXM=}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      MAIL_HOST: mailpit
-      MAIL_PORT: 1025
-      MAIL_SMTP_AUTH: "false"
-      EMAIL_FROM: Digital Wallet <no-reply@wallet.local>
+      # Gmail with the credentials in .env (see .env.example)
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      EMAIL_FROM: ${EMAIL_FROM:-Digital Wallet <no-reply@wallet.local>}
       # Client app that opens the links in verification and password reset emails
       APP_URL: ${APP_URL:-http://localhost:3000}
       # Simulated unless Stripe test keys are given, e.g. PAYMENT_PROVIDER=stripe with STRIPE_API_KEY=sk_test_...
       # and the STRIPE_WEBHOOK_SECRET printed by `stripe listen`
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-simulated}
+      # Withdrawals are simulated: no real payout provider is integrated yet
+      PAYOUT_PROVIDER: simulated
       STRIPE_API_KEY: ${STRIPE_API_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       # Traces go to Tempo when the observability profile is running too
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      # Local runs only, the same one docker/observability/prometheus/prometheus.yml sends
+      MANAGEMENT_SCRAPE_PASSWORD: ${MANAGEMENT_SCRAPE_PASSWORD:-scrape-dev-password}
+      # Off locally, where the web app has no Turnstile site key; Cloudflare's test keys (sitekey
+      # 1x00000000000000000000AA, secret 1x0000000000000000000000000000000AA) always pass if you want to try it
+      CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
     ports:
       - "8080:8080"
     # The management port (8081) stays inside the compose network, where Prometheus scrapes it
@@ -105,8 +109,9 @@ services:
     volumes:
       - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./docker/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    # 3030 on the host: 3000 is the web app's dev server, which the emailed links point to
     ports:
-      - "3000:3000"
+      - "3030:3000"
 
 volumes:
   postgres-data:

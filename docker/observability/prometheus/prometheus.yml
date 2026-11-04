@@ -8,6 +8,11 @@ rule_files:
 scrape_configs:
   - job_name: digital-wallet
     metrics_path: /actuator/prometheus
+    # Needed by the container (prod profile, MANAGEMENT_SCRAPE_PASSWORD in docker-compose.yml); the app started
+    # from the IDE has none and ignores it
+    basic_auth:
+      username: prometheus
+      password: scrape-dev-password
     static_configs:
       # Only one of them is up at a time: the app started from the IDE, or the container from --profile app
       - targets: ["host.docker.internal:8081"]
