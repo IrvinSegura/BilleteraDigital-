@@ -1,7 +1,10 @@
 package com.irvinsegura.wallet.identity.domain.model;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Registered user, its login state and whether it may move money. Only the password hash is kept; the raw password
@@ -11,9 +14,13 @@ public class User {
 
     public static final int MAX_FULL_NAME_LENGTH = 100;
 
+    // E.164: a plus sign, a country code that doesn't start with 0, and at most 15 digits in all
+    private static final Pattern PHONE = Pattern.compile("\\+[1-9]\\d{7,14}");
+
     private final UserId id;
     private final Email email;
-    private final String fullName;
+    private String fullName;
+    private String phone;
     private final Role role;
     private final Instant createdAt;
     private final Long version;
@@ -23,12 +30,14 @@ public class User {
     private int failedLoginAttempts;
     private Instant lockedUntil;
 
-    private User(UserId id, Email email, String passwordHash, String fullName, Role role, UserStatus status,
-            Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil, Instant createdAt, Long version) {
+    private User(UserId id, Email email, String passwordHash, String fullName, String phone, Role role,
+            UserStatus status, Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil, Instant createdAt,
+            Long version) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.email = Objects.requireNonNull(email, "email must not be null");
         this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash must not be null");
         this.fullName = Objects.requireNonNull(fullName, "fullName must not be null");
+        this.phone = phone;
         this.role = Objects.requireNonNull(role, "role must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
@@ -55,23 +64,57 @@ public class User {
 
     private static User create(Email email, String passwordHash, String fullName, Role role, Instant emailVerifiedAt,
             Instant now) {
-        String name = fullName == null ? "" : fullName.strip();
-        if (name.isEmpty() || name.length() > MAX_FULL_NAME_LENGTH) {
-            throw new IllegalArgumentException(
-                    "fullName must have between 1 and %d characters".formatted(MAX_FULL_NAME_LENGTH));
-        }
-        return new User(UserId.newId(), email, passwordHash, name, role, UserStatus.ACTIVE, emailVerifiedAt, 0, null,
-                now, null);
+        return new User(UserId.newId(), email, passwordHash, normalizeFullName(fullName), null, role,
+                UserStatus.ACTIVE, emailVerifiedAt, 0, null, now, null);
     }
 
     /**
      * Rebuilds a user from storage. {@code version} is the optimistic lock value; null means not persisted yet.
      */
-    public static User restore(UserId id, Email email, String passwordHash, String fullName, Role role,
-            UserStatus status, Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil,
+    public static User restore(UserId id, Email email, String passwordHash, String fullName, String phone,
+            Role role, UserStatus status, Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil,
             Instant createdAt, Long version) {
-        return new User(id, email, passwordHash, fullName, role, status, emailVerifiedAt, failedLoginAttempts,
+        return new User(id, email, passwordHash, fullName, phone, role, status, emailVerifiedAt, failedLoginAttempts,
                 lockedUntil, createdAt, version);
+    }
+
+    /**
+     * Changes the name and the phone; {@code null} leaves each as it is, and a blank phone removes it. Spaces,
+     * dashes, dots and parentheses in the phone are ignored.
+     *
+     * @return the fields that changed: {@code FULL_NAME}, {@code PHONE}
+     * @throws InvalidProfileException if the name is blank or too long, or the phone isn't in E.164
+     */
+    public List<String> updateProfile(String newFullName, String newPhone) {
+        List<String> changed = new ArrayList<>();
+        if (newFullName != null) {
+            String name = normalizeFullName(newFullName);
+            if (!name.equals(fullName)) {
+                fullName = name;
+                changed.add("FULL_NAME");
+            }
+        }
+        if (newPhone != null) {
+            String number = newPhone.replaceAll("[\\s().-]", "");
+            if (!number.isEmpty() && !PHONE.matcher(number).matches()) {
+                throw new InvalidProfileException("phone must be in international format, e.g. +525512345678");
+            }
+            String stored = number.isEmpty() ? null : number;
+            if (!Objects.equals(stored, phone)) {
+                phone = stored;
+                changed.add("PHONE");
+            }
+        }
+        return List.copyOf(changed);
+    }
+
+    private static String normalizeFullName(String fullName) {
+        String name = fullName == null ? "" : fullName.strip().replaceAll("\\s+", " ");
+        if (name.isEmpty() || name.length() > MAX_FULL_NAME_LENGTH) {
+            throw new InvalidProfileException(
+                    "fullName must have between 1 and %d characters".formatted(MAX_FULL_NAME_LENGTH));
+        }
+        return name;
     }
 
     public boolean isActive() {
@@ -184,6 +227,10 @@ public class User {
 
     public String fullName() {
         return fullName;
+    }
+
+    public String phone() {
+        return phone;
     }
 
     public Role role() {

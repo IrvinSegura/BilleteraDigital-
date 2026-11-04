@@ -31,6 +31,9 @@ class UserEntity {
     @Column(name = "full_name", nullable = false, length = 100)
     private String fullName;
 
+    @Column(length = 16)
+    private String phone;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Role role;
@@ -63,6 +66,7 @@ class UserEntity {
         entity.email = user.email().value();
         entity.passwordHash = user.passwordHash();
         entity.fullName = user.fullName();
+        entity.phone = user.phone();
         entity.role = user.role();
         entity.status = user.status();
         entity.emailVerifiedAt = user.emailVerifiedAt();
@@ -74,7 +78,7 @@ class UserEntity {
     }
 
     User toDomain() {
-        return User.restore(new UserId(id), new Email(email), passwordHash, fullName, role, status, emailVerifiedAt,
-                failedLoginAttempts, lockedUntil, createdAt, version);
+        return User.restore(new UserId(id), new Email(email), passwordHash, fullName, phone, role, status,
+                emailVerifiedAt, failedLoginAttempts, lockedUntil, createdAt, version);
     }
 }
