@@ -96,6 +96,12 @@ class ProviderBalanceIntegrationTest {
         assertThat(after.get("SETTLEMENT")).isEqualTo(before.get("SETTLEMENT") + 4_000);
         assertThat(after.get("PROVIDER_FEES")).isEqualTo(before.get("PROVIDER_FEES") + 380);
         assertThat(providerBalance.balanceDifferences()).containsEntry("MXN", 0L);
+        api.get(admin, "/api/v1/admin/payments/provider-balance-differences")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.holdsFunds").value(true))
+                .andExpect(jsonPath("$.comparisons[?(@.currency == 'MXN')].differenceMinor").value(0))
+                .andExpect(jsonPath("$.comparisons[?(@.currency == 'MXN')].recordedBalanceMinor")
+                        .value(after.get("PROVIDER_CLEARING").intValue()));
         assertThat(reconciliation.reconcile(ReconciliationRun.Trigger.MANUAL, null).isConsistent()).isTrue();
 
         // Reading the same movements again records nothing twice
@@ -143,6 +149,60 @@ class ProviderBalanceIntegrationTest {
                 .andExpect(jsonPath("$[?(@.id == '%s')].note".formatted(disputeId)).value("Not handled: adjustment"));
         api.get(user, TRANSACTIONS).andExpect(status().isForbidden());
         assertThat(reconciliation.reconcile(ReconciliationRun.Trigger.MANUAL, null).isConsistent()).isTrue();
+    }
+
+    @Test
+    void aPersonClosesAnUnmatchedMovementWithoutPostingAnything() throws Exception {
+        String disputeId = stripe.addBalanceTransaction("adjustment", -700, 0, "mxn", null);
+        assertEventually(() -> {
+            providerBalance.synchronize();
+            assertThat(transactionIds("UNMATCHED")).contains(disputeId);
+        });
+        Map<String, Long> before = systemBalances("MXN");
+        String resolve = TRANSACTIONS + "/" + providerBalance.providerName() + "/" + disputeId + "/resolve";
+        String reason = """
+                {"reason": "Fee agreed with the provider"}""";
+
+        api.postJson(user, resolve, reason).andExpect(status().isForbidden());
+        api.postJson(admin, resolve, """
+                {"reason": ""}""").andExpect(status().isBadRequest());
+        api.postJson(admin, TRANSACTIONS + "/" + providerBalance.providerName() + "/unknown/resolve", reason)
+                .andExpect(status().isNotFound());
+
+        api.postJson(admin, resolve, reason)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.resolutionReason").value("Fee agreed with the provider"))
+                .andExpect(jsonPath("$.resolvedBy").isNotEmpty());
+        api.postJson(admin, resolve, reason)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROVIDER_TRANSACTION_NOT_UNMATCHED"));
+
+        assertThat(transactionIds("UNMATCHED")).doesNotContain(disputeId);
+        assertThat(transactionIds("RESOLVED")).contains(disputeId);
+        assertThat(systemBalances("MXN")).isEqualTo(before);
+
+        String adminId = read(api.get(admin, "/api/v1/users/me"), "$.id");
+        assertEventually(() -> assertThat(api.get(admin, "/api/v1/admin/audit-events?size=5&actorId=" + adminId
+                        + "&action=PROVIDER_TRANSACTION_RESOLVED")
+                .andReturn().getResponse().getContentAsString())
+                .contains(disputeId, "reason: Fee agreed with the provider"));
+    }
+
+    @Test
+    void withoutAStatusTheListShowsEveryStatus() throws Exception {
+        String session = paidDeposit("10.00");
+        String chargeId = stripe.addBalanceTransaction("charge", 1_000, 38, "mxn", stripe.paymentIntentOf(session));
+        String disputeId = stripe.addBalanceTransaction("adjustment", -100, 0, "mxn", null);
+        assertEventually(() -> {
+            providerBalance.synchronize();
+            assertThat(transactionIds("POSTED")).contains(chargeId);
+        });
+
+        String body = api.get(admin, TRANSACTIONS + "?limit=200")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(JsonPath.<List<String>>read(body, "$[*].id")).contains(chargeId, disputeId);
     }
 
     private String paidDeposit(String amount) throws Exception {
