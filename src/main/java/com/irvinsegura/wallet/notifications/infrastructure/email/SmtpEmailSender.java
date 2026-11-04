@@ -6,8 +6,8 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
 /**
- * Sends through the mail server configured in {@code spring.mail.*}: Mailpit locally, a transactional email
- * provider's SMTP relay in production.
+ * Sends through the mail server configured in {@code spring.mail.*}: Gmail locally and in production, Mailpit in
+ * integration tests.
  */
 public class SmtpEmailSender implements EmailSender {
 
