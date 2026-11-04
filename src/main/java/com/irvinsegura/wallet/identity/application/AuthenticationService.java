@@ -1,8 +1,12 @@
 package com.irvinsegura.wallet.identity.application;
 
 import com.irvinsegura.wallet.identity.AccountDisabledException;
+import com.irvinsegura.wallet.identity.EmailVerificationRequested;
+import com.irvinsegura.wallet.identity.TwoFactorRequiredException;
+import com.irvinsegura.wallet.identity.UserSignedIn;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
 import com.irvinsegura.wallet.identity.domain.model.Email;
+import com.irvinsegura.wallet.identity.domain.model.EmailVerificationRequiredException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidCredentialsException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidEmailException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidRefreshTokenException;
@@ -17,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,26 +37,38 @@ public class AuthenticationService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordHasher passwordHasher;
     private final PasswordVerifier passwordVerifier;
+    private final SecondFactorVerifier secondFactorVerifier;
     private final SessionTokens sessionTokens;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
     // Checked against when the email is unknown, so both failure paths take the same time and leak nothing
     private final String unknownUserHash;
 
     AuthenticationService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
-            PasswordHasher passwordHasher, PasswordVerifier passwordVerifier, SessionTokens sessionTokens,
+            PasswordHasher passwordHasher, PasswordVerifier passwordVerifier,
+            SecondFactorVerifier secondFactorVerifier, SessionTokens sessionTokens, ApplicationEventPublisher events,
             Clock clock) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordHasher = passwordHasher;
         this.passwordVerifier = passwordVerifier;
+        this.secondFactorVerifier = secondFactorVerifier;
         this.sessionTokens = sessionTokens;
+        this.events = events;
         this.clock = clock;
         this.unknownUserHash = passwordHasher.hash(UUID.randomUUID().toString());
     }
 
-    // The failed-attempt counter must be stored even though the login fails
-    @Transactional(noRollbackFor = InvalidCredentialsException.class)
-    public AuthTokens login(String email, String password) {
+    /**
+     * @param twoFactorCode      the authenticator app's code or a recovery code; needed only when two-factor
+     *                           authentication is on
+     * @param resendVerification for an account whose email is not verified yet: email a new link
+     * @throws TwoFactorRequiredException         if it is on and no code was given
+     * @throws EmailVerificationRequiredException if the account has not verified its email address
+     */
+    // The failed-attempt counter, and the request for a new link, must be stored even though the login fails
+    @Transactional(noRollbackFor = {InvalidCredentialsException.class, EmailVerificationRequiredException.class})
+    public AuthTokens login(String email, String password, String twoFactorCode, boolean resendVerification) {
         Instant now = clock.instant();
         Optional<User> found = findForLogin(email);
         if (found.isEmpty()) {
@@ -70,10 +87,25 @@ public class AuthenticationService {
         if (!user.isActive()) {
             throw new AccountDisabledException();
         }
+        // Whoever signed up with an address they don't own never gets a session. A new link only on request: each
+        // one cancels the earlier links, which the user may be about to follow
+        if (!user.isEmailVerified()) {
+            if (resendVerification) {
+                events.publishEvent(new EmailVerificationRequested(user.id().value(), now));
+            }
+            throw new EmailVerificationRequiredException();
+        }
+        // A wrong code counts like a wrong password, so the lockout bounds guessing it too
+        if (!secondFactorVerifier.verify(user.id(), twoFactorCode, now)) {
+            passwordVerifier.recordFailedAttempt(user, now);
+            throw new InvalidCredentialsException();
+        }
         if (user.recordSuccessfulLogin()) {
             userRepository.save(user);
         }
-        return sessionTokens.startSession(user, now);
+        AuthTokens tokens = sessionTokens.startSession(user, now);
+        events.publishEvent(new UserSignedIn(user.id().value(), now));
+        return tokens;
     }
 
     // The family revocation on token reuse must be stored even though the refresh fails
