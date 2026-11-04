@@ -92,12 +92,16 @@ class AdminUserIntegrationTest {
         }
         api.get(admin, USERS + userId).andExpect(jsonPath("$.locked").value(true));
 
-        api.postJson(admin, USERS + userId + "/unlock", "")
+        api.postJson(admin, USERS + userId + "/unlock", """
+                {"reason": " "}""").andExpect(status().isBadRequest());
+        api.postJson(admin, USERS + userId + "/unlock", """
+                {"reason": "Confirmed by phone"}""")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.locked").value(false));
 
         login(user.email(), PASSWORD).andExpect(status().isOk());
-        assertEventually(() -> assertThat(auditActionsFor(userId)).first().isEqualTo("USER_UNLOCKED"));
+        assertEventually(() -> assertThat(auditActionsFor(userId)).contains("USER_UNLOCKED"));
+        assertThat(auditFor(userId)).contains("reason: Confirmed by phone");
     }
 
     @Test

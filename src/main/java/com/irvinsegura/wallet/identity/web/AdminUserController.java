@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.identity.web;
 
 import com.irvinsegura.wallet.identity.application.AdminUserView;
+import com.irvinsegura.wallet.identity.application.TwoFactorService;
 import com.irvinsegura.wallet.identity.application.UserAdministrationService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
@@ -27,9 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
 class AdminUserController {
 
     private final UserAdministrationService administrationService;
+    private final TwoFactorService twoFactorService;
 
-    AdminUserController(UserAdministrationService administrationService) {
+    AdminUserController(UserAdministrationService administrationService, TwoFactorService twoFactorService) {
         this.administrationService = administrationService;
+        this.twoFactorService = twoFactorService;
     }
 
     // A POST body rather than a query parameter, so the address stays out of access logs and traces
@@ -44,8 +47,9 @@ class AdminUserController {
     }
 
     @PostMapping("/{userId}/unlock")
-    AdminUserResponse unlock(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId) {
-        return AdminUserResponse.from(administrationService.unlock(userId, adminId(jwt)));
+    AdminUserResponse unlock(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId,
+            @Valid @RequestBody StatusChangeRequest request) {
+        return AdminUserResponse.from(administrationService.unlock(userId, adminId(jwt), request.reason()));
     }
 
     @PostMapping("/{userId}/disable")
@@ -60,6 +64,16 @@ class AdminUserController {
         return AdminUserResponse.from(administrationService.enable(userId, adminId(jwt), request.reason()));
     }
 
+    /**
+     * Turns off two-factor authentication for someone who lost their phone and recovery codes, once support has
+     * confirmed who they are. The user is notified.
+     */
+    @PostMapping("/{userId}/two-factor/reset")
+    TwoFactorResetResponse resetTwoFactor(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId,
+            @Valid @RequestBody StatusChangeRequest request) {
+        return new TwoFactorResetResponse(twoFactorService.reset(adminId(jwt), userId, request.reason()));
+    }
+
     private static UUID adminId(Jwt jwt) {
         return UUID.fromString(jwt.getSubject());
     }
@@ -67,17 +81,24 @@ class AdminUserController {
     record SearchRequest(@NotBlank @Size(max = 254) String email) {
     }
 
+    /**
+     * @param wasEnabled false if the user had no authenticator app, so nothing changed
+     */
+    record TwoFactorResetResponse(boolean wasEnabled) {
+    }
+
     // A reason is mandatory: it is what the audit log shows when someone asks why they cannot sign in
     record StatusChangeRequest(@NotBlank @Size(max = 200) String reason) {
     }
 
     record AdminUserResponse(UUID id, String email, String fullName, String role, String status,
-            boolean emailVerified, Instant emailVerifiedAt, boolean locked, Instant lockedUntil, Instant createdAt) {
+            boolean emailVerified, Instant emailVerifiedAt, boolean locked, Instant lockedUntil,
+            boolean twoFactorEnabled, Instant createdAt) {
 
         static AdminUserResponse from(AdminUserView user) {
             return new AdminUserResponse(user.id(), user.email(), user.fullName(), user.role(), user.status(),
                     user.emailVerifiedAt() != null, user.emailVerifiedAt(), user.lockedUntil() != null,
-                    user.lockedUntil(), user.createdAt());
+                    user.lockedUntil(), user.twoFactorEnabled(), user.createdAt());
         }
     }
 }
