@@ -2,6 +2,8 @@ package com.irvinsegura.wallet.payments.web;
 
 import com.irvinsegura.wallet.payments.PaymentProviderUnavailableException;
 import com.irvinsegura.wallet.payments.domain.model.InvalidWebhookException;
+import com.irvinsegura.wallet.payments.domain.model.ProviderTransactionNotFoundException;
+import com.irvinsegura.wallet.payments.domain.model.ProviderTransactionNotUnmatchedException;
 import com.irvinsegura.wallet.shared.web.Problems;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,17 @@ class PaymentsExceptionHandler {
                 .header(HttpHeaders.RETRY_AFTER, "30")
                 .body(Problems.create(HttpStatus.SERVICE_UNAVAILABLE, "Payment provider unavailable",
                         ex.getMessage(), ex.getCode()));
+    }
+
+    @ExceptionHandler(ProviderTransactionNotFoundException.class)
+    ProblemDetail handleProviderTransactionNotFound(ProviderTransactionNotFoundException ex) {
+        return Problems.create(HttpStatus.NOT_FOUND, "Provider transaction not found", ex.getMessage(), ex.getCode());
+    }
+
+    @ExceptionHandler(ProviderTransactionNotUnmatchedException.class)
+    ProblemDetail handleProviderTransactionNotUnmatched(ProviderTransactionNotUnmatchedException ex) {
+        return Problems.create(HttpStatus.CONFLICT, "Provider transaction not unmatched", ex.getMessage(),
+                ex.getCode());
     }
 
     // The reason stays in the logs; the caller is either Stripe, which never reads it, or someone forging requests
