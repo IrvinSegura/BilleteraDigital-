@@ -58,6 +58,15 @@ class IdempotentExecutor {
         }
     }
 
+    /**
+     * The stored result when the key was already used for this request, without claiming it otherwise. Lets callers
+     * skip work a replay doesn't need, such as asking for step-up proof again; {@link #execute} still decides.
+     */
+    <T> Optional<Idempotent<T>> replayOf(UUID userId, String key, String requestHash, Function<UUID, T> loader) {
+        return readOnlyTransaction.execute(status -> repository.find(userId, key)
+                .map(record -> replay(record, requestHash, loader)));
+    }
+
     private static <T> Idempotent<T> replay(IdempotencyRecord record, String requestHash, Function<UUID, T> loader) {
         record.requireSameRequest(requestHash);
         return new Idempotent<>(loader.apply(record.resourceId()), true);

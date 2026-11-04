@@ -2,6 +2,8 @@ package com.irvinsegura.wallet.transfers.infrastructure.config;
 
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.domain.model.DepositPolicy;
+import com.irvinsegura.wallet.transfers.domain.model.StepUpPolicy;
+import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -15,11 +17,19 @@ class TransfersConfiguration {
 
     @Bean
     DepositPolicy depositPolicy(TransfersProperties properties) {
-        // Money.of rejects maximums with more decimals than the currency allows, failing fast at startup
-        Map<Currency, Money> maximums = properties.maxDeposit().entrySet().stream()
+        return new DepositPolicy(byCurrency(properties.maxDeposit()));
+    }
+
+    @Bean
+    StepUpPolicy stepUpPolicy(TransfersProperties properties) {
+        return new StepUpPolicy(byCurrency(properties.stepUpExemptBelow()));
+    }
+
+    // Money.of rejects amounts with more decimals than the currency allows, failing fast at startup
+    private static Map<Currency, Money> byCurrency(Map<String, BigDecimal> amounts) {
+        return amounts.entrySet().stream()
                 .collect(Collectors.toMap(
                         entry -> Currency.getInstance(entry.getKey()),
                         entry -> Money.of(entry.getValue(), entry.getKey())));
-        return new DepositPolicy(maximums);
     }
 }
