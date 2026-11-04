@@ -53,6 +53,23 @@ public final class AccountEmails {
                 """.formatted(fullName, link("reset-password", token), TIME.format(expiresAt)));
     }
 
+    /**
+     * No link with a secret: it only points to pages the owner can open anyway.
+     */
+    public EmailMessage signUpAttempted(String email, String fullName) {
+        return new EmailMessage(email, "Someone tried to sign up with your email", """
+                Hi %s,
+
+                Someone tried to create a Digital Wallet account with this email address, which already has one. \
+                Nothing was changed and no new account was created.
+
+                If it was you, sign in here: %s
+                Forgot your password? Reset it here: %s
+
+                If it was not you, you can ignore this email.
+                """.formatted(fullName, appUrl + "/login", appUrl + "/forgot-password"));
+    }
+
     private String link(String page, String token) {
         return appUrl + "/" + page + "#token=" + token;
     }
