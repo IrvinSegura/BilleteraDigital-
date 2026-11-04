@@ -3,6 +3,7 @@ package com.irvinsegura.wallet.transfers;
 import static com.irvinsegura.wallet.support.ApiClient.newKey;
 import static com.irvinsegura.wallet.support.ApiClient.read;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -77,15 +79,68 @@ class TransferIntegrationTest {
     }
 
     @Test
-    void onlyTheSenderCanReadTheTransfer() throws Exception {
+    void bothSidesCanReadTheTransferAndNobodyElse() throws Exception {
         String transferId = read(api.transfer(alice, aliceWallet, bob.email(), "1.00", newKey()), "$.id");
 
         api.get(alice, "/api/v1/transfers/" + transferId)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(transferId));
+                .andExpect(jsonPath("$.id").value(transferId))
+                .andExpect(jsonPath("$.direction").value("SENT"))
+                .andExpect(jsonPath("$.sourceWalletId").value(aliceWallet))
+                .andExpect(jsonPath("$.senderEmail").value(alice.email()))
+                .andExpect(jsonPath("$.recipientName").value("Ana López"));
+        // The recipient sees who paid them, but not the sender's wallet
         api.get(bob, "/api/v1/transfers/" + transferId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.direction").value("RECEIVED"))
+                .andExpect(jsonPath("$.sourceWalletId").doesNotExist())
+                .andExpect(jsonPath("$.senderName").value("Ana López"))
+                .andExpect(jsonPath("$.description").value("Dinner"));
+        api.get(api.newUser(), "/api/v1/transfers/" + transferId)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TRANSFER_NOT_FOUND"));
+    }
+
+    @Test
+    void recentRecipientsComeMostRecentlyPaidFirst() throws Exception {
+        TestUser carol = api.newUser();
+        api.openWalletId(carol, "MXN");
+        api.transfer(alice, aliceWallet, bob.email(), "1.00", newKey()).andExpect(status().isCreated());
+        api.transfer(alice, aliceWallet, carol.email(), "1.00", newKey()).andExpect(status().isCreated());
+        api.transfer(alice, aliceWallet, bob.email(), "2.00", newKey()).andExpect(status().isCreated());
+
+        api.get(alice, "/api/v1/transfers/recipients")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].email").value(bob.email()))
+                .andExpect(jsonPath("$[0].displayName").value("Ana L."))
+                .andExpect(jsonPath("$[0].timesSent").value(2))
+                .andExpect(jsonPath("$[1].email").value(carol.email()));
+        api.get(alice, "/api/v1/transfers/recipients?limit=1").andExpect(jsonPath("$.length()").value(1));
+        api.get(bob, "/api/v1/transfers/recipients").andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void recipientLookupShowsAShortNameOnlyForWhoCanReceive() throws Exception {
+        api.get(alice, "/api/v1/transfers/recipient?currency=MXN&email=" + bob.email().toUpperCase())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(bob.email()))
+                .andExpect(jsonPath("$.displayName").value("Ana L."))
+                .andExpect(jsonPath("$.timesSent").value(0))
+                .andExpect(jsonPath("$.lastSentAt").doesNotExist());
+
+        // No USD wallet, nobody with that email, or oneself: the same answer as the transfer would give
+        api.get(alice, "/api/v1/transfers/recipient?currency=USD&email=" + bob.email())
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("RECIPIENT_NOT_FOUND"));
+        api.get(alice, "/api/v1/transfers/recipient?currency=MXN&email=nobody-" + newKey() + "@example.com")
+                .andExpect(jsonPath("$.code").value("RECIPIENT_NOT_FOUND"));
+        api.get(alice, "/api/v1/transfers/recipient?currency=MXN&email=" + alice.email())
+                .andExpect(jsonPath("$.code").value("RECIPIENT_NOT_FOUND"));
+        api.get(alice, "/api/v1/transfers/recipient?currency=mxn&email=" + bob.email())
+                .andExpect(status().isBadRequest());
+        api.get(alice, "/api/v1/transfers/recipient?currency=ZZZ&email=" + bob.email())
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -158,6 +213,21 @@ class TransferIntegrationTest {
         api.transfer(alice, aliceWallet, dollarsOnly.email(), "1.00", newKey())
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("RECIPIENT_NOT_FOUND"));
+        assertThat(api.balance(alice, aliceWallet)).isEqualTo("100.00");
+    }
+
+    @Test
+    void aConceptWithMarkupIsRefused() throws Exception {
+        mockMvc.perform(post("/api/v1/transfers")
+                        .header("Authorization", alice.bearer())
+                        .header("Idempotency-Key", newKey())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceWalletId": "%s", "recipientEmail": "%s", "amount": 1.00,
+                                 "description": "<img src=x onerror=alert(1)>", %s}"""
+                                .formatted(aliceWallet, bob.email(), ApiClient.WITH_PASSWORD)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         assertThat(api.balance(alice, aliceWallet)).isEqualTo("100.00");
     }
 
