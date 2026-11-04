@@ -9,15 +9,19 @@ import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
 import com.irvinsegura.wallet.shared.domain.InvalidAmountException;
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.transfers.WithdrawalRequested;
 import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
 import com.irvinsegura.wallet.transfers.domain.model.InvalidPayoutDestinationException;
 import com.irvinsegura.wallet.transfers.domain.model.PayoutProviderUnavailableException;
 import com.irvinsegura.wallet.transfers.domain.model.Withdrawal;
 import com.irvinsegura.wallet.transfers.domain.model.WithdrawalNotFoundException;
 import com.irvinsegura.wallet.transfers.domain.port.WithdrawalRepository;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,10 +46,11 @@ public class WithdrawalService {
     private final WithdrawalRepository withdrawalRepository;
     private final IdempotentExecutor idempotentExecutor;
     private final WithdrawalSettlement settlement;
+    private final ApplicationEventPublisher events;
 
     WithdrawalService(Wallets wallets, BankAccounts bankAccounts, UserDirectory users, Ledger ledger,
             WithdrawalRepository withdrawalRepository, IdempotentExecutor idempotentExecutor,
-            WithdrawalSettlement settlement) {
+            WithdrawalSettlement settlement, ApplicationEventPublisher events) {
         this.wallets = wallets;
         this.bankAccounts = bankAccounts;
         this.users = users;
@@ -53,6 +58,7 @@ public class WithdrawalService {
         this.withdrawalRepository = withdrawalRepository;
         this.idempotentExecutor = idempotentExecutor;
         this.settlement = settlement;
+        this.events = events;
     }
 
     /**
@@ -63,10 +69,19 @@ public class WithdrawalService {
                 command.walletId().toString(),
                 command.amount().stripTrailingZeros().toPlainString(),
                 String.valueOf(command.bankAccountId()));
+        Function<UUID, WithdrawalReceipt> loader =
+                withdrawalId -> WithdrawalReceipt.from(withdrawalRepository.findById(withdrawalId).orElseThrow());
+        // Retrying a withdrawal that went through needs no new proof (a used two-factor code wouldn't work twice)
+        Optional<Idempotent<WithdrawalReceipt>> replay = idempotentExecutor.replayOf(command.userId(),
+                command.idempotencyKey(), requestHash, loader);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        // Money leaving the platform always needs the owner's proof. Checked outside the withdrawal's transaction: it
+        // commits on its own and locks the user row, and inside every request would hold two connections at once
+        users.confirmStepUp(command.userId(), command.twoFactorCode(), command.currentPassword());
         Idempotent<WithdrawalReceipt> requested = idempotentExecutor.execute(command.userId(),
-                command.idempotencyKey(), requestHash,
-                withdrawalId -> request(withdrawalId, command),
-                withdrawalId -> WithdrawalReceipt.from(withdrawalRepository.findById(withdrawalId).orElseThrow()));
+                command.idempotencyKey(), requestHash, withdrawalId -> request(withdrawalId, command), loader);
         if (requested.replayed()) {
             return requested;
         }
@@ -101,6 +116,8 @@ public class WithdrawalService {
                 command.bankAccountId(), amount, ledger.balanceOf(wallet.ledgerAccountId()), entry.journalEntryId(),
                 entry.postedAt());
         withdrawalRepository.save(withdrawal);
+        events.publishEvent(new WithdrawalRequested(withdrawalId, command.userId(), wallet.id(), amount.minorUnits(),
+                wallet.currency().getCurrencyCode(), entry.postedAt()));
         return WithdrawalReceipt.from(withdrawal);
     }
 

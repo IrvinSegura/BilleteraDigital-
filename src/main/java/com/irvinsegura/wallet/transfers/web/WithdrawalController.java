@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -47,7 +48,7 @@ class WithdrawalController {
             @Valid @RequestBody WithdrawalRequest request) {
         Idempotent<WithdrawalReceipt> result = withdrawalService.withdraw(
                 new WithdrawalCommand(UUID.fromString(jwt.getSubject()), key, walletId, request.amount(),
-                        request.bankAccountId()));
+                        request.bankAccountId(), request.twoFactorCode(), request.currentPassword()));
         return ResponseEntity.status(statusFor(result.value().status()))
                 .header(IdempotencyHeaders.REPLAYED, String.valueOf(result.replayed()))
                 .body(WithdrawalResponse.from(result.value()));
@@ -69,10 +70,21 @@ class WithdrawalController {
     }
 
     /**
-     * @param bankAccountId one of the user's bank accounts; required for MXN wallets, not allowed for USD
+     * @param bankAccountId   one of the user's bank accounts; required for MXN wallets, not allowed for USD
+     * @param twoFactorCode   step-up proof every withdrawal needs from accounts with two-factor on ({@code 403
+     *                        TWO_FACTOR_REQUIRED} without it)
+     * @param currentPassword the same proof from accounts without two-factor ({@code 403
+     *                        PASSWORD_CONFIRMATION_REQUIRED} without it)
      */
     record WithdrawalRequest(@NotNull @Positive @Digits(integer = 12, fraction = 4) BigDecimal amount,
-            UUID bankAccountId) {
+            UUID bankAccountId,
+            @Size(max = 20) String twoFactorCode,
+            @Size(max = 128) String currentPassword) {
+
+        @Override
+        public String toString() {
+            return "WithdrawalRequest[amount=%s, bankAccountId=%s, credentials=***]".formatted(amount, bankAccountId);
+        }
     }
 
     /**
