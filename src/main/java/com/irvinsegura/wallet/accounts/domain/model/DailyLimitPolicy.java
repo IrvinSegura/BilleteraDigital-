@@ -8,6 +8,7 @@ import java.time.ZoneId;
 import java.util.Currency;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Caps how much money can leave a wallet (withdrawals and transfers sent) per calendar day, per currency.
@@ -24,6 +25,24 @@ public record DailyLimitPolicy(Map<Currency, Money> limits, ZoneId zone) {
         return instant.atZone(zone).toLocalDate();
     }
 
+    public Optional<Money> limitFor(Currency currency) {
+        return Optional.ofNullable(limits.get(currency));
+    }
+
+    /**
+     * What can still leave today; can be zero but never negative, even if the limit was lowered during the day.
+     */
+    public Money remaining(Money limit, Money usedToday) {
+        return limit.isGreaterThanOrEqualTo(usedToday) ? limit.minus(usedToday) : Money.zero(limit.currency());
+    }
+
+    /**
+     * When the day after the one {@code instant} falls on starts, in the users' zone.
+     */
+    public Instant nextDayStart(Instant instant) {
+        return dayOf(instant).plusDays(1).atStartOfDay(zone).toInstant();
+    }
+
     /**
      * @param usedToday what already left the wallet today, including nothing of {@code amount}
      */
@@ -33,8 +52,7 @@ public record DailyLimitPolicy(Map<Currency, Money> limits, ZoneId zone) {
         if (limit == null) {
             return;
         }
-        // Usage can exceed the limit if the limit was lowered during the day
-        Money remaining = limit.isGreaterThanOrEqualTo(usedToday) ? limit.minus(usedToday) : Money.zero(limit.currency());
+        Money remaining = remaining(limit, usedToday);
         if (!remaining.isGreaterThanOrEqualTo(amount)) {
             throw new DailyLimitExceededException(limit, remaining);
         }
