@@ -15,7 +15,7 @@ import org.springframework.validation.annotation.Validated;
  */
 @Validated
 @ConfigurationProperties("wallet.rate-limit")
-public record RateLimitProperties(boolean enabled, @Valid List<Rule> rules) {
+public record RateLimitProperties(boolean enabled, List<@Valid Rule> rules) {
 
     public RateLimitProperties {
         rules = rules == null ? List.of() : List.copyOf(rules);
