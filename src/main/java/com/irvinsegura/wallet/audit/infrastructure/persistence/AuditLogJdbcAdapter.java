@@ -41,17 +41,23 @@ class AuditLogJdbcAdapter implements AuditLogRepository {
     }
 
     @Override
-    public AuditSlice find(UUID actorId, UUID targetId, int page, int size) {
+    public AuditSlice find(UUID actorId, UUID targetId, String action, Instant from, Instant to, int page, int size) {
         // Casting the parameters lets PostgreSQL type a null filter, which it cannot infer on its own
         List<AuditEntry> rows = jdbcClient.sql("""
                         SELECT id, occurred_at, actor_id, action, target_type, target_id, details
                         FROM audit_events
                         WHERE (CAST(:actorId AS UUID) IS NULL OR actor_id = :actorId)
                           AND (CAST(:targetId AS UUID) IS NULL OR target_id = :targetId)
+                          AND (CAST(:action AS VARCHAR) IS NULL OR action = :action)
+                          AND (CAST(:from AS TIMESTAMPTZ) IS NULL OR occurred_at >= :from)
+                          AND (CAST(:to AS TIMESTAMPTZ) IS NULL OR occurred_at < :to)
                         ORDER BY occurred_at DESC, id
                         LIMIT :limit OFFSET :offset""")
                 .param("actorId", actorId)
                 .param("targetId", targetId)
+                .param("action", action)
+                .param("from", from == null ? null : OffsetDateTime.ofInstant(from, ZoneOffset.UTC))
+                .param("to", to == null ? null : OffsetDateTime.ofInstant(to, ZoneOffset.UTC))
                 .param("limit", size + 1)
                 .param("offset", (long) page * size)
                 .query(AuditLogJdbcAdapter::mapRow)

@@ -29,14 +29,19 @@ class AdminAuditController {
     }
 
     /**
-     * Filter by {@code targetId} for a wallet's or user's history, or by {@code actorId} for what someone did.
+     * Filter by {@code targetId} for a wallet's or user's history, by {@code actorId} for what someone did, by
+     * {@code action}, and by moment: from {@code from} up to, but not including, {@code to}.
      */
     @GetMapping
     AuditPageResponse search(@RequestParam(required = false) UUID actorId,
             @RequestParam(required = false) UUID targetId,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size) {
-        AuditLogRepository.AuditSlice slice = auditLogService.search(actorId, targetId, page, size);
+        AuditLogRepository.AuditSlice slice = auditLogService.search(actorId, targetId,
+                action == null || action.isBlank() ? null : action, from, to, page, size);
         return new AuditPageResponse(slice.items().stream().map(AuditEventResponse::from).toList(), page, size,
                 slice.hasNext());
     }
