@@ -8,9 +8,10 @@ import java.util.UUID;
 public interface BankAccounts {
 
     /**
-     * For a new withdrawal: the account must belong to the user and not be removed.
+     * For a new withdrawal: the account must belong to the user, not be removed and be past its cooling-off period.
      *
-     * @throws BankAccountNotFoundException if it does not exist, belongs to someone else or was removed
+     * @throws BankAccountNotFoundException    if it does not exist, belongs to someone else or was removed
+     * @throws BankAccountCoolingOffException if it was added too recently
      */
     BankAccountInfo getActiveBankAccount(UUID bankAccountId, UUID ownerId);
 

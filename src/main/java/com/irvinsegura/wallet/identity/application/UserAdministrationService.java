@@ -25,13 +25,15 @@ public class UserAdministrationService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final SecondFactorVerifier secondFactorVerifier;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     UserAdministrationService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
-            ApplicationEventPublisher events, Clock clock) {
+            SecondFactorVerifier secondFactorVerifier, ApplicationEventPublisher events, Clock clock) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
+        this.secondFactorVerifier = secondFactorVerifier;
         this.events = events;
         this.clock = clock;
     }
@@ -40,7 +42,7 @@ public class UserAdministrationService {
     public AdminUserView findByEmail(String email) {
         try {
             return userRepository.findByEmail(Email.of(email))
-                    .map(user -> AdminUserView.from(user, clock.instant()))
+                    .map(user -> view(user, clock.instant()))
                     .orElseThrow(UserNotFoundException::new);
         } catch (InvalidEmailException e) {
             throw new UserNotFoundException();
@@ -50,7 +52,7 @@ public class UserAdministrationService {
     @Transactional(readOnly = true)
     public AdminUserView getUser(UUID userId) {
         return userRepository.findById(new UserId(userId))
-                .map(user -> AdminUserView.from(user, clock.instant()))
+                .map(user -> view(user, clock.instant()))
                 .orElseThrow(UserNotFoundException::new);
     }
 
@@ -59,15 +61,15 @@ public class UserAdministrationService {
      * changes nothing and is not audited.
      */
     @Transactional
-    public AdminUserView unlock(UUID userId, UUID adminId) {
+    public AdminUserView unlock(UUID userId, UUID adminId, String reason) {
         User user = lock(userId);
         Instant now = clock.instant();
         boolean wasLocked = user.unlock(now);
         userRepository.save(user);
         if (wasLocked) {
-            events.publishEvent(new UserUnlocked(userId, adminId, now));
+            events.publishEvent(new UserUnlocked(userId, adminId, reason, now));
         }
-        return AdminUserView.from(user, now);
+        return view(user, now);
     }
 
     /**
@@ -86,7 +88,7 @@ public class UserAdministrationService {
             refreshTokenRepository.revokeAllForUser(user.id(), now);
             events.publishEvent(new UserStatusChanged(userId, user.status().name(), adminId, reason, now));
         }
-        return AdminUserView.from(user, now);
+        return view(user, now);
     }
 
     @Transactional
@@ -97,7 +99,12 @@ public class UserAdministrationService {
             userRepository.save(user);
             events.publishEvent(new UserStatusChanged(userId, user.status().name(), adminId, reason, now));
         }
-        return AdminUserView.from(user, now);
+        return view(user, now);
+    }
+
+    // Support needs it before resetting a lost authenticator app
+    private AdminUserView view(User user, Instant now) {
+        return AdminUserView.from(user, secondFactorVerifier.isEnabled(user.id()), now);
     }
 
     private User lock(UUID userId) {

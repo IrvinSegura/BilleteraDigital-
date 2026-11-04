@@ -5,6 +5,7 @@ import com.irvinsegura.wallet.identity.EmailVerified;
 import com.irvinsegura.wallet.identity.PasswordChanged;
 import com.irvinsegura.wallet.identity.PasswordResetRequested;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
+import com.irvinsegura.wallet.identity.domain.model.BreachedPasswordException;
 import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.IncorrectPasswordException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidEmailException;
@@ -14,6 +15,7 @@ import com.irvinsegura.wallet.identity.domain.model.TokenPurpose;
 import com.irvinsegura.wallet.identity.domain.model.User;
 import com.irvinsegura.wallet.identity.domain.model.UserId;
 import com.irvinsegura.wallet.identity.domain.model.UserNotFoundException;
+import com.irvinsegura.wallet.identity.domain.port.BreachedPasswords;
 import com.irvinsegura.wallet.identity.domain.port.PasswordHasher;
 import com.irvinsegura.wallet.identity.domain.port.RefreshTokenRepository;
 import com.irvinsegura.wallet.identity.domain.port.UserRepository;
@@ -23,7 +25,9 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Forgotten passwords (reset through an email link) and password changes from inside the account. Both end every
@@ -41,20 +45,25 @@ public class PasswordService {
     private final PasswordVerifier passwordVerifier;
     private final SessionTokens sessionTokens;
     private final OneTimeTokenService tokens;
+    private final BreachedPasswords breachedPasswords;
     private final ApplicationEventPublisher events;
     private final Clock clock;
+    private final TransactionTemplate transaction;
 
     PasswordService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordHasher passwordHasher, PasswordVerifier passwordVerifier, SessionTokens sessionTokens,
-            OneTimeTokenService tokens, ApplicationEventPublisher events, Clock clock) {
+            OneTimeTokenService tokens, BreachedPasswords breachedPasswords, ApplicationEventPublisher events,
+            Clock clock, PlatformTransactionManager transactionManager) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordHasher = passwordHasher;
         this.passwordVerifier = passwordVerifier;
         this.sessionTokens = sessionTokens;
         this.tokens = tokens;
+        this.breachedPasswords = breachedPasswords;
         this.events = events;
         this.clock = clock;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -74,13 +83,19 @@ public class PasswordService {
      * proves the user owns the address, so it verifies the email too.
      *
      * @throws InvalidOneTimeTokenException if the link is invalid, expired or was already used
+     * @throws BreachedPasswordException     if the password appears in a known data breach
      */
-    @Transactional
     public void resetPassword(String rawToken, String newPassword) {
-        // Checked first, so a weak password does not use up the link
-        PasswordPolicy.check(newPassword);
+        // Checked first, so a weak password does not use up the link; the one built from the user's own name or
+        // email is only known after, and its rollback gives the link back
+        checkBeforeTransaction(newPassword);
+        transaction.executeWithoutResult(status -> reset(rawToken, newPassword));
+    }
+
+    private void reset(String rawToken, String newPassword) {
         UserId userId = tokens.consume(rawToken, TokenPurpose.RESET_PASSWORD);
         User user = userRepository.findByIdForUpdate(userId).orElseThrow(InvalidOneTimeTokenException::new);
+        PasswordPolicy.check(newPassword, user.email().value(), user.fullName());
         Instant now = clock.instant();
         boolean newlyVerified = user.verifyEmail(now);
         replacePassword(user, newPassword, RESET, now);
@@ -94,12 +109,22 @@ public class PasswordService {
      * the device that changed it stays signed in.
      *
      * @throws IncorrectPasswordException if the current password is wrong; it counts as a failed login
+     * @throws BreachedPasswordException  if the new password appears in a known data breach
      */
-    // The failed attempt must be stored even though the change fails
-    @Transactional(noRollbackFor = IncorrectPasswordException.class)
     public AuthTokens changePassword(UUID userId, String currentPassword, String newPassword) {
-        PasswordPolicy.check(newPassword);
+        checkBeforeTransaction(newPassword);
+        AuthTokens tokens = transaction.execute(status -> change(userId, currentPassword, newPassword));
+        // Thrown after the commit: the failed attempt must be stored even though the change fails
+        if (tokens == null) {
+            throw new IncorrectPasswordException();
+        }
+        return tokens;
+    }
+
+    // Null when the current password is wrong
+    private AuthTokens change(UUID userId, String currentPassword, String newPassword) {
         User user = userRepository.findByIdForUpdate(new UserId(userId)).orElseThrow(UserNotFoundException::new);
+        PasswordPolicy.check(newPassword, user.email().value(), user.fullName());
         Instant now = clock.instant();
         if (!user.isActive()) {
             throw new AccountDisabledException();
@@ -108,10 +133,18 @@ public class PasswordService {
             throw new AccountLockedException(user.lockedUntil());
         }
         if (!passwordVerifier.verify(user, currentPassword, now)) {
-            throw new IncorrectPasswordException();
+            return null;
         }
         replacePassword(user, newPassword, CHANGE, now);
         return sessionTokens.startSession(user, now);
+    }
+
+    // The rules that need no user, then the breach lookup: a network call no database connection should wait on
+    private void checkBeforeTransaction(String newPassword) {
+        PasswordPolicy.check(newPassword);
+        if (breachedPasswords.isBreached(newPassword)) {
+            throw new BreachedPasswordException();
+        }
     }
 
     private void replacePassword(User user, String newPassword, String method, Instant now) {

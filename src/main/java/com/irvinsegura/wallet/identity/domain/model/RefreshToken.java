@@ -17,17 +17,19 @@ public class RefreshToken {
     private final String tokenHash;
     private final Instant issuedAt;
     private final Instant expiresAt;
+    private final ClientInfo client;
     private final Long version;
     private Instant revokedAt;
 
     private RefreshToken(UUID id, UserId userId, UUID familyId, String tokenHash, Instant issuedAt, Instant expiresAt,
-            Instant revokedAt, Long version) {
+            ClientInfo client, Instant revokedAt, Long version) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.userId = Objects.requireNonNull(userId, "userId must not be null");
         this.familyId = Objects.requireNonNull(familyId, "familyId must not be null");
         this.tokenHash = Objects.requireNonNull(tokenHash, "tokenHash must not be null");
         this.issuedAt = Objects.requireNonNull(issuedAt, "issuedAt must not be null");
         this.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
+        this.client = client == null ? ClientInfo.unknown() : client;
         this.revokedAt = revokedAt;
         this.version = version;
     }
@@ -36,9 +38,16 @@ public class RefreshToken {
      * Creates a token in the given family. The raw value is returned only here and is never stored.
      */
     public static Issued issue(UserId userId, UUID familyId, Instant now, Duration ttl) {
+        return issue(userId, familyId, now, ttl, ClientInfo.unknown());
+    }
+
+    /**
+     * Same, remembering the client it was issued to.
+     */
+    public static Issued issue(UserId userId, UUID familyId, Instant now, Duration ttl, ClientInfo client) {
         String rawValue = OpaqueTokens.generate();
         RefreshToken token = new RefreshToken(
-                UUID.randomUUID(), userId, familyId, hash(rawValue), now, now.plus(ttl), null, null);
+                UUID.randomUUID(), userId, familyId, hash(rawValue), now, now.plus(ttl), client, null, null);
         return new Issued(token, rawValue);
     }
 
@@ -46,8 +55,8 @@ public class RefreshToken {
      * Rebuilds a token from storage. {@code version} is the optimistic lock value; null means not persisted yet.
      */
     public static RefreshToken restore(UUID id, UserId userId, UUID familyId, String tokenHash, Instant issuedAt,
-            Instant expiresAt, Instant revokedAt, Long version) {
-        return new RefreshToken(id, userId, familyId, tokenHash, issuedAt, expiresAt, revokedAt, version);
+            Instant expiresAt, ClientInfo client, Instant revokedAt, Long version) {
+        return new RefreshToken(id, userId, familyId, tokenHash, issuedAt, expiresAt, client, revokedAt, version);
     }
 
     public static String hash(String rawValue) {
@@ -90,6 +99,10 @@ public class RefreshToken {
 
     public Instant expiresAt() {
         return expiresAt;
+    }
+
+    public ClientInfo client() {
+        return client;
     }
 
     public Instant revokedAt() {

@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.shared.web;
 
 import com.irvinsegura.wallet.shared.domain.DomainException;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,10 +13,13 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.validation.method.ParameterErrors;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -76,6 +80,30 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         List<FieldViolation> violations = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> new FieldViolation(error.getField(), error.getDefaultMessage()))
                 .toList();
+        return validationFailed(violations, headers, status);
+    }
+
+    // Controllers with constraints on a header or path variable are validated as a whole method, so an invalid body
+    // arrives here instead of in handleMethodArgumentNotValid; it answers the same way
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(
+            HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        List<FieldViolation> violations = new ArrayList<>();
+        for (ParameterValidationResult result : ex.getParameterValidationResults()) {
+            if (result instanceof ParameterErrors errors) {
+                errors.getFieldErrors().forEach(error ->
+                        violations.add(new FieldViolation(error.getField(), error.getDefaultMessage())));
+            } else {
+                String parameter = result.getMethodParameter().getParameterName();
+                result.getResolvableErrors().forEach(error ->
+                        violations.add(new FieldViolation(parameter, error.getDefaultMessage())));
+            }
+        }
+        return validationFailed(violations, headers, status);
+    }
+
+    private static ResponseEntity<Object> validationFailed(List<FieldViolation> violations, HttpHeaders headers,
+            HttpStatusCode status) {
         ProblemDetail problem = Problems.create(status, "Invalid request", "Request validation failed",
                 "VALIDATION_FAILED");
         problem.setProperty("violations", violations);

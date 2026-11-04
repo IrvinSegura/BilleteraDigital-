@@ -44,6 +44,26 @@ public final class NotificationMessages {
                 null, at);
     }
 
+    public static Notification twoFactorEnabled(UUID userId, Instant at) {
+        return Notification.create(NotificationType.TWO_FACTOR_ENABLED, userId + "@" + at, userId,
+                "Two-factor authentication is on",
+                "Signing in now also asks for a code from your authenticator app. Keep your recovery codes somewhere "
+                        + "safe: they are the way back in if you lose your phone.",
+                null, at);
+    }
+
+    /**
+     * @param bySupport whether support turned it off, after the user lost their phone
+     */
+    public static Notification twoFactorDisabled(UUID userId, boolean bySupport, Instant at) {
+        return Notification.create(NotificationType.TWO_FACTOR_DISABLED, userId + "@" + at, userId,
+                "Two-factor authentication is off",
+                (bySupport ? "Our support team turned off two-factor authentication on your account, as you asked. "
+                        : "Two-factor authentication was turned off on your account. ")
+                        + "If it wasn't you, change your password right away and contact support.",
+                null, at);
+    }
+
     public static Notification accountDisabled(UUID userId, Instant at) {
         return Notification.create(NotificationType.ACCOUNT_DISABLED, userId + "@" + at, userId,
                 "Account disabled",
@@ -77,8 +97,9 @@ public final class NotificationMessages {
     public static Notification bankAccountAdded(UUID bankAccountId, UUID userId, String clabeLastFour, Instant at) {
         return Notification.create(NotificationType.BANK_ACCOUNT_ADDED, bankAccountId.toString(), userId,
                 "Bank account added",
-                ("The bank account ending in %s can now receive your withdrawals. If you did not add it, remove it "
-                        + "and change your password right away.").formatted(clabeLastFour),
+                ("The bank account ending in %s was added and can receive your withdrawals once its waiting period "
+                        + "ends. If you did not add it, remove it and change your password right away.")
+                        .formatted(clabeLastFour),
                 null, at);
     }
 

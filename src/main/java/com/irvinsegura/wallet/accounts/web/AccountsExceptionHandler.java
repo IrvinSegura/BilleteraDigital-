@@ -3,6 +3,7 @@ package com.irvinsegura.wallet.accounts.web;
 import com.irvinsegura.wallet.accounts.BankAccountNotFoundException;
 import com.irvinsegura.wallet.accounts.WalletNotFoundException;
 import com.irvinsegura.wallet.accounts.domain.model.BankAccountAlreadyExistsException;
+import com.irvinsegura.wallet.accounts.domain.model.MovementNotFoundException;
 import com.irvinsegura.wallet.accounts.domain.model.WalletAlreadyExistsException;
 import com.irvinsegura.wallet.shared.web.Problems;
 import org.springframework.core.Ordered;
@@ -22,6 +23,11 @@ class AccountsExceptionHandler {
 
     @ExceptionHandler(WalletNotFoundException.class)
     ProblemDetail handleWalletNotFound(WalletNotFoundException ex) {
+        return Problems.create(HttpStatus.NOT_FOUND, "Not found", ex.getMessage(), ex.getCode());
+    }
+
+    @ExceptionHandler(MovementNotFoundException.class)
+    ProblemDetail handleMovementNotFound(MovementNotFoundException ex) {
         return Problems.create(HttpStatus.NOT_FOUND, "Not found", ex.getMessage(), ex.getCode());
     }
 

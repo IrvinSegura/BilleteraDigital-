@@ -17,9 +17,19 @@ wallet:
     password:
       # Minimum cost keeps tests fast; production uses 12
       hash-strength: 4
+      # No calls to the internet from tests; BreachedPasswordIntegrationTest swaps in its own list
+      breach-check:
+        enabled: false
     admin:
       email: admin@wallet.test
       password: admin-test-password
+    two-factor:
+      encryption-key: dGVzdC1vbmx5LXR3by1mYWN0b3Ita2V5LTMyLWJ5dGU=
+    # HumanCheckIntegrationTest swaps in its own verifier
+    captcha:
+      enabled: false
+    # Tests sign in as the administrator with the password alone; AdminTwoFactorIntegrationTest turns it back on
+    admin-requires-two-factor: false
   # Emails go to the Mailpit container from TestcontainersConfiguration
   notifications:
     email:
@@ -31,6 +41,13 @@ wallet:
     daily-outgoing-limit:
       MXN: 500.00
       USD: 500.00
+    # Withdrawals to a bank account added a moment ago; BankAccountCoolingOffIntegrationTest turns it back on
+    bank-account-cooling-off: 0s
+  # Under the daily limit above, so StepUpIntegrationTest can reach both sides of the exemption
+  transfers:
+    step-up-exempt-below:
+      MXN: 200.00
+      USD: 200.00
   # Tests call the jobs' services directly, and every test logs in from the same address;
   # RateLimitIntegrationTest turns limiting back on with its own rules
   scheduling:

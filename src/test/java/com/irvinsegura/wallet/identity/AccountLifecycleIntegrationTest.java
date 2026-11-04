@@ -3,7 +3,6 @@ package com.irvinsegura.wallet.identity;
 import static com.irvinsegura.wallet.support.ApiClient.PASSWORD;
 import static com.irvinsegura.wallet.support.ApiClient.RESET_PASSWORD_SUBJECT;
 import static com.irvinsegura.wallet.support.ApiClient.VERIFY_EMAIL_SUBJECT;
-import static com.irvinsegura.wallet.support.ApiClient.newKey;
 import static com.irvinsegura.wallet.support.ApiClient.read;
 import static com.irvinsegura.wallet.support.Eventually.assertEventually;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,37 +53,12 @@ class AccountLifecycleIntegrationTest {
     }
 
     @Test
-    void unverifiedAccountsCanAddAndReceiveMoneyButNotTakeItOut() throws Exception {
-        TestUser newcomer = api.newUnverifiedUser();
-        TestUser friend = api.newUser();
-        api.get(newcomer, "/api/v1/users/me").andExpect(jsonPath("$.emailVerified").value(false));
-        String newcomerWallet = api.openWalletId(newcomer, "MXN");
-        String friendWallet = api.openWalletId(friend, "MXN");
-        api.deposit(friend, friendWallet, "50.00").andExpect(status().isCreated());
-
-        api.deposit(newcomer, newcomerWallet, "100.00").andExpect(status().isCreated());
-        api.transfer(friend, friendWallet, newcomer.email(), "10.00", newKey()).andExpect(status().isCreated());
-        api.withdraw(newcomer, newcomerWallet, "1.00")
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
-        api.transfer(newcomer, newcomerWallet, friend.email(), "1.00", newKey())
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
-        assertThat(api.balance(newcomer, newcomerWallet)).isEqualTo("110.00");
-
-        api.verifyEmail(newcomer);
-
-        api.get(newcomer, "/api/v1/users/me").andExpect(jsonPath("$.emailVerified").value(true));
-        api.withdraw(newcomer, newcomerWallet, "1.00").andExpect(status().isCreated());
-    }
-
-    @Test
     void verificationLinksWorkOnceAndOnlyTheNewestOne() throws Exception {
-        TestUser user = api.newUnverifiedUser();
-        String first = api.awaitLinkToken(user.email(), VERIFY_EMAIL_SUBJECT, 1);
+        String email = api.registerUnverified();
+        String first = api.awaitLinkToken(email, VERIFY_EMAIL_SUBJECT, 1);
 
-        api.postJson(user, "/api/v1/users/me/email-verification", "").andExpect(status().isAccepted());
-        String second = api.awaitLinkToken(user.email(), VERIFY_EMAIL_SUBJECT, 2);
+        api.register(email).andExpect(status().isAccepted());
+        String second = api.awaitLinkToken(email, VERIFY_EMAIL_SUBJECT, 2);
 
         assertThat(second).isNotEqualTo(first);
         api.confirmEmail(first)
@@ -92,31 +66,44 @@ class AccountLifecycleIntegrationTest {
                 .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
         api.confirmEmail(second).andExpect(status().isNoContent());
         api.confirmEmail(second).andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
-        api.postJson(user, "/api/v1/users/me/email-verification", "")
+        api.postJson(api.login(email, PASSWORD), "/api/v1/users/me/email-verification", "")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_VERIFIED"));
     }
 
     @Test
-    void resettingAForgottenPasswordEndsSessionsAndLiftsTheLockout() throws Exception {
-        TestUser user = api.newUnverifiedUser();
-        for (int i = 0; i < 5; i++) {
-            login(user.email(), "wrong password 123");
-        }
-        login(user.email(), PASSWORD).andExpect(status().isLocked());
+    void resettingAForgottenPasswordEndsEverySession() throws Exception {
+        TestUser user = api.newUser();
 
         requestReset(user.email()).andExpect(status().isAccepted());
-        String token = api.awaitLinkToken(user.email(), RESET_PASSWORD_SUBJECT, 1);
+        resetPassword(api.awaitLinkToken(user.email(), RESET_PASSWORD_SUBJECT, 1), NEW_PASSWORD)
+                .andExpect(status().isNoContent());
+
+        refresh(user.refreshToken()).andExpect(status().isUnauthorized());
+        api.login(user.email(), NEW_PASSWORD);
+    }
+
+    @Test
+    void resettingAForgottenPasswordLiftsTheLockoutAndVerifiesTheEmail() throws Exception {
+        String email = api.registerUnverified();
+        for (int i = 0; i < 5; i++) {
+            login(email, "wrong password 123");
+        }
+        login(email, PASSWORD).andExpect(status().isLocked());
+
+        requestReset(email).andExpect(status().isAccepted());
+        String token = api.awaitLinkToken(email, RESET_PASSWORD_SUBJECT, 1);
 
         // A rejected password does not use up the link
         resetPassword(token, "short").andExpect(jsonPath("$.code").value("WEAK_PASSWORD"));
+        // Nor one built from the user's name, refused only after the link has been read
+        resetPassword(token, "AnaLopez-2024!").andExpect(jsonPath("$.code").value("COMMON_PASSWORD"));
         resetPassword(token, NEW_PASSWORD).andExpect(status().isNoContent());
         resetPassword(token, NEW_PASSWORD).andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
 
-        refresh(user.refreshToken()).andExpect(status().isUnauthorized());
-        login(user.email(), PASSWORD).andExpect(status().isUnauthorized());
-        TestUser signedIn = api.login(user.email(), NEW_PASSWORD);
-        // Following the link proved the address too
+        login(email, PASSWORD).andExpect(status().isUnauthorized());
+        // Following the link proved the address too, so the account can sign in
+        TestUser signedIn = api.login(email, NEW_PASSWORD);
         api.get(signedIn, "/api/v1/users/me").andExpect(jsonPath("$.emailVerified").value(true));
         assertEventually(() -> assertThat(notificationTitles(signedIn)).contains("Your password was reset"));
     }

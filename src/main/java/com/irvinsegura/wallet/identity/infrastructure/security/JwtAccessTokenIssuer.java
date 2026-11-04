@@ -25,7 +25,7 @@ class JwtAccessTokenIssuer implements AccessTokenIssuer {
     }
 
     @Override
-    public AccessToken issue(User user, Instant now) {
+    public AccessToken issue(User user, boolean twoFactorEnabled, UUID sessionId, Instant now) {
         Instant expiresAt = now.plus(properties.accessTokenTtl());
         // Only the user id and roles: tokens are readable by anyone holding them, so no personal data goes in
         JwtClaimsSet claims = JwtClaimsSet.builder()
@@ -35,6 +35,8 @@ class JwtAccessTokenIssuer implements AccessTokenIssuer {
                 .expiresAt(expiresAt)
                 .id(UUID.randomUUID().toString())
                 .claim(AccessToken.ROLES_CLAIM, List.of(user.role().name()))
+                .claim(AccessToken.TWO_FACTOR_CLAIM, twoFactorEnabled)
+                .claim(AccessToken.SESSION_CLAIM, sessionId.toString())
                 .build();
         JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
         String value = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();

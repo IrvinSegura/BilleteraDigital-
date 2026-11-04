@@ -2,6 +2,8 @@ package com.irvinsegura.wallet.identity.infrastructure.persistence;
 
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,6 +24,19 @@ interface RefreshTokenJpaRepository extends JpaRepository<RefreshTokenEntity, UU
             update RefreshTokenEntity t set t.revokedAt = :now, t.version = t.version + 1
             where t.familyId = :familyId and t.revokedAt is null""")
     int revokeFamily(@Param("familyId") UUID familyId, @Param("now") Instant now);
+
+    // Reads ix_refresh_tokens_user_id_active
+    @Query("""
+            select t from RefreshTokenEntity t
+            where t.userId = :userId and t.revokedAt is null and t.expiresAt > :now
+            order by t.issuedAt desc""")
+    List<RefreshTokenEntity> findLiveByUser(@Param("userId") UUID userId, @Param("now") Instant now);
+
+    @Query("""
+            select new com.irvinsegura.wallet.identity.infrastructure.persistence.SessionStartRow(
+                t.familyId, min(t.issuedAt))
+            from RefreshTokenEntity t where t.familyId in :familyIds group by t.familyId""")
+    List<SessionStartRow> sessionStarts(@Param("familyIds") Collection<UUID> familyIds);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""

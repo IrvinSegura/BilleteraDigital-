@@ -6,5 +6,5 @@ import java.util.UUID;
 /**
  * Published when an administrator lifts a lockout before it expires.
  */
-public record UserUnlocked(UUID userId, UUID unlockedBy, Instant occurredAt) {
+public record UserUnlocked(UUID userId, UUID unlockedBy, String reason, Instant occurredAt) {
 }

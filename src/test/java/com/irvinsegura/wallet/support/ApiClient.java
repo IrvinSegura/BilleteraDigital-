@@ -26,6 +26,10 @@ public final class ApiClient {
     public static final String PASSWORD = "correct horse battery staple";
     public static final String VERIFY_EMAIL_SUBJECT = "Confirm your email address";
     public static final String RESET_PASSWORD_SUBJECT = "Reset your password";
+    public static final String SIGN_UP_ATTEMPTED_SUBJECT = "Someone tried to sign up with your email";
+    // Step-up proof for money leaving a wallet: every test user's password (accounts without two-factor)
+    public static final String WITH_PASSWORD = withPassword(PASSWORD);
+    public static final String NO_STEP_UP = "";
     // Created at startup from application-test.yml
     private static final String ADMIN_EMAIL = "admin@wallet.test";
     private static final String ADMIN_PASSWORD = "admin-test-password";
@@ -41,29 +45,36 @@ public final class ApiClient {
     }
 
     /**
-     * A signed-in user who confirmed their email through the emailed link, so they can move money.
+     * A signed-in user who confirmed their email through the emailed link, as every account must before signing in.
      */
     public TestUser newUser() throws Exception {
-        TestUser user = newUnverifiedUser();
-        verifyEmail(user);
-        return user;
-    }
-
-    /**
-     * A signed-in user who has not confirmed their email: they can receive money but not send or withdraw it.
-     */
-    public TestUser newUnverifiedUser() throws Exception {
-        String email = "user-" + UUID.randomUUID() + "@example.com";
-        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"email": "%s", "password": "%s", "fullName": "Ana López"}"""
-                                .formatted(email, PASSWORD)))
-                .andExpect(status().isCreated());
+        String email = registerUnverified();
+        confirmEmailOf(email);
         return login(email, PASSWORD);
     }
 
-    public void verifyEmail(TestUser user) throws Exception {
-        confirmEmail(awaitLinkToken(user.email(), VERIFY_EMAIL_SUBJECT, 1)).andExpect(status().isNoContent());
+    /**
+     * Signs up a new address without following the emailed link, so the account exists but cannot sign in yet.
+     *
+     * @return the address
+     */
+    public String registerUnverified() throws Exception {
+        String email = "user-" + UUID.randomUUID() + "@example.com";
+        register(email).andExpect(status().isAccepted());
+        return email;
+    }
+
+    public ResultActions register(String email) throws Exception {
+        return mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email": "%s", "password": "%s", "fullName": "Ana López"}""".formatted(email, PASSWORD)));
+    }
+
+    /**
+     * Follows the newest verification link emailed to the address.
+     */
+    public void confirmEmailOf(String email) throws Exception {
+        confirmEmail(awaitLinkToken(email, VERIFY_EMAIL_SUBJECT, 1)).andExpect(status().isNoContent());
     }
 
     public ResultActions confirmEmail(String token) throws Exception {
@@ -149,13 +160,22 @@ public final class ApiClient {
 
     public ResultActions withdrawTo(TestUser user, String walletId, String amount, String idempotencyKey,
             String bankAccountId) throws Exception {
+        return withdrawTo(user, walletId, amount, idempotencyKey, bankAccountId, WITH_PASSWORD);
+    }
+
+    /**
+     * @param stepUp the step-up fields as JSON members, e.g. {@link #WITH_PASSWORD} or {@link #withCode}; empty for
+     *               none
+     */
+    public ResultActions withdrawTo(TestUser user, String walletId, String amount, String idempotencyKey,
+            String bankAccountId, String stepUp) throws Exception {
         String bankAccount = bankAccountId == null ? "" : ", \"bankAccountId\": \"%s\"".formatted(bankAccountId);
         return mockMvc.perform(post("/api/v1/wallets/" + walletId + "/withdrawals")
                 .header("Authorization", user.bearer())
                 .header("Idempotency-Key", idempotencyKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"amount": %s%s}""".formatted(amount, bankAccount)));
+                        {"amount": %s%s%s}""".formatted(amount, bankAccount, members(stepUp))));
     }
 
     public ResultActions addBankAccount(TestUser user, String clabe) throws Exception {
@@ -201,15 +221,39 @@ public final class ApiClient {
         }
     }
 
+    /**
+     * Sends the user's password as step-up proof, which accounts without two-factor need for most transfers.
+     */
     public ResultActions transfer(TestUser user, String sourceWalletId, String recipientEmail, String amount,
             String idempotencyKey) throws Exception {
+        return transfer(user, sourceWalletId, recipientEmail, amount, idempotencyKey, WITH_PASSWORD);
+    }
+
+    /**
+     * @param stepUp the step-up fields as JSON members, e.g. {@link #WITH_PASSWORD} or {@link #withCode}; empty for
+     *               none
+     */
+    public ResultActions transfer(TestUser user, String sourceWalletId, String recipientEmail, String amount,
+            String idempotencyKey, String stepUp) throws Exception {
         return mockMvc.perform(post("/api/v1/transfers")
                 .header("Authorization", user.bearer())
                 .header("Idempotency-Key", idempotencyKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"sourceWalletId": "%s", "recipientEmail": "%s", "amount": %s, "description": "Dinner"}"""
-                        .formatted(sourceWalletId, recipientEmail, amount)));
+                        {"sourceWalletId": "%s", "recipientEmail": "%s", "amount": %s, "description": "Dinner"%s}"""
+                        .formatted(sourceWalletId, recipientEmail, amount, members(stepUp))));
+    }
+
+    public static String withCode(String code) {
+        return "\"twoFactorCode\": \"%s\"".formatted(code);
+    }
+
+    public static String withPassword(String password) {
+        return "\"currentPassword\": \"%s\"".formatted(password);
+    }
+
+    private static String members(String json) {
+        return json.isEmpty() ? "" : ", " + json;
     }
 
     public ResultActions get(TestUser user, String path) throws Exception {

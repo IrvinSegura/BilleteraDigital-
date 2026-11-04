@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.notifications.application;
 
 import com.irvinsegura.wallet.identity.AccountTokens;
 import com.irvinsegura.wallet.identity.EmailVerificationRequested;
+import com.irvinsegura.wallet.identity.ExistingAccountSignUpAttempted;
 import com.irvinsegura.wallet.identity.PasswordResetRequested;
 import com.irvinsegura.wallet.identity.UserContact;
 import com.irvinsegura.wallet.identity.UserDirectory;
@@ -14,7 +15,8 @@ import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
 /**
- * Sends the emails with a verification or password reset link. The token is issued here, inside the listener's
+ * Sends the emails about the account itself: a verification or password reset link, or a notice that someone tried
+ * to sign up with its address. The token is issued here, inside the listener's
  * transaction, instead of travelling in the event: the outbox never stores a usable secret, and if sending fails the
  * token is rolled back and the retry issues a new one. A retry after the user asked again just sends the newest link.
  */
@@ -45,6 +47,12 @@ class AccountEmailListener {
                         token -> emailSender.send(accountEmails.verifyEmail(contact.get().email(),
                                 contact.get().fullName(), token.value(), token.expiresAt())),
                         () -> log.info("Verification email for user {} skipped: nothing to verify", event.userId()));
+    }
+
+    @ApplicationModuleListener
+    void on(ExistingAccountSignUpAttempted event) {
+        users.findContact(event.userId()).ifPresent(contact ->
+                emailSender.send(accountEmails.signUpAttempted(contact.email(), contact.fullName())));
     }
 
     @ApplicationModuleListener

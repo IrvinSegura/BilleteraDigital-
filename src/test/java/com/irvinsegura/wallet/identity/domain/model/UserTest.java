@@ -25,7 +25,7 @@ class UserTest {
     @Test
     void rejectsBlankNames() {
         assertThatThrownBy(() -> User.register(Email.of("ana@example.com"), "hash", "   ", NOW))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(InvalidProfileException.class);
     }
 
     @Test

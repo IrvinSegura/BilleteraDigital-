@@ -11,6 +11,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -22,7 +23,7 @@ class ProviderTransactionJdbcAdapter implements ProviderTransactionRepository {
 
     private static final String COLUMNS = """
             provider, id, type, provider_type, amount_minor, fee_minor, currency, provider_payment_id, status, note,
-            created_at, recorded_at, settled_at""";
+            created_at, recorded_at, settled_at, resolved_by, resolution_reason, resolved_at""";
 
     private final JdbcClient jdbcClient;
 
@@ -102,11 +103,28 @@ class ProviderTransactionJdbcAdapter implements ProviderTransactionRepository {
     }
 
     @Override
-    public List<ProviderTransaction> findByStatus(ProviderTransaction.Status status, int limit) {
+    public void resolve(String provider, String id, UUID resolvedBy, String reason, Instant now) {
+        jdbcClient.sql("""
+                        UPDATE provider_balance_transactions
+                        SET status = 'RESOLVED', resolved_by = :resolvedBy, resolution_reason = :reason,
+                            resolved_at = :resolvedAt, version = version + 1
+                        WHERE provider = :provider AND id = :id""")
+                .param("resolvedBy", resolvedBy)
+                .param("reason", reason)
+                .param("resolvedAt", utc(now))
+                .param("provider", provider)
+                .param("id", id)
+                .update();
+    }
+
+    @Override
+    public List<ProviderTransaction> find(ProviderTransaction.Status status, int limit) {
+        // Casting the parameter lets PostgreSQL type a null filter, which it cannot infer on its own
         return jdbcClient.sql("""
-                        SELECT %s FROM provider_balance_transactions WHERE status = :status
+                        SELECT %s FROM provider_balance_transactions
+                        WHERE (CAST(:status AS VARCHAR) IS NULL OR status = :status)
                         ORDER BY created_at DESC, id LIMIT :limit""".formatted(COLUMNS))
-                .param("status", status.name())
+                .param("status", status == null ? null : status.name())
                 .param("limit", limit)
                 .query(ProviderTransactionJdbcAdapter::map)
                 .list();
@@ -119,7 +137,13 @@ class ProviderTransactionJdbcAdapter implements ProviderTransactionRepository {
                 rs.getString("provider_payment_id"), instant(rs, "created_at"));
         return new ProviderTransaction(rs.getString("provider"), transaction,
                 ProviderTransaction.Status.valueOf(rs.getString("status")), rs.getString("note"),
-                instant(rs, "recorded_at"), instant(rs, "settled_at"));
+                instant(rs, "recorded_at"), instant(rs, "settled_at"), resolution(rs));
+    }
+
+    private static ProviderTransaction.Resolution resolution(ResultSet rs) throws SQLException {
+        Instant resolvedAt = instant(rs, "resolved_at");
+        return resolvedAt == null ? null : new ProviderTransaction.Resolution(rs.getObject("resolved_by", UUID.class),
+                rs.getString("resolution_reason"), resolvedAt);
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {

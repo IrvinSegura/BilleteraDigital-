@@ -44,4 +44,32 @@ public interface UserDirectory {
      * @throws AccountDisabledException if an administrator disabled the account
      */
     void authorizeAccountChange(UUID userId);
+
+    /**
+     * Asks a user with two-factor authentication on for a code before a sensitive change, such as adding a bank
+     * account. Does nothing for users without it. Runs and commits on its own, so a wrong code counts toward the
+     * lockout even though the change is refused. Call it before the caller's transaction starts, for the same reason
+     * as {@link #confirmStepUp}.
+     *
+     * @param code the authenticator app's code or a recovery code
+     * @throws TwoFactorRequiredException    if the user has it on and gave no code
+     * @throws InvalidTwoFactorCodeException if the code is wrong
+     */
+    void confirmSecondFactor(UUID userId, String code);
+
+    /**
+     * Step-up check before money leaves: proof that whoever holds the session is the account owner, so a stolen
+     * access token alone cannot empty the wallet. Users with two-factor authentication on give its code; the others
+     * give their current password. Same rules as {@link #confirmSecondFactor}: it commits on its own and a wrong
+     * credential counts toward the lockout. Call it outside any transaction: it locks the user row in its own, which
+     * inside another would hold a second connection and wait on any lock the caller already took.
+     *
+     * @param twoFactorCode   the authenticator app's code or a recovery code, used when two-factor is on
+     * @param currentPassword the account's password, used when two-factor is off
+     * @throws TwoFactorRequiredException            if two-factor is on and no code was given
+     * @throws InvalidTwoFactorCodeException         if the code is wrong
+     * @throws PasswordConfirmationRequiredException if two-factor is off and no password was given; a wrong one
+     *                                               answers {@code INCORRECT_PASSWORD}
+     */
+    void confirmStepUp(UUID userId, String twoFactorCode, String currentPassword);
 }

@@ -5,13 +5,18 @@ import com.irvinsegura.wallet.ledger.Ledger;
 import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.UnsupportedCurrencyException;
 import com.irvinsegura.wallet.payments.PaymentProviderUnavailableException;
+import com.irvinsegura.wallet.payments.ProviderTransactionResolved;
 import com.irvinsegura.wallet.payments.domain.model.BalanceTransaction;
 import com.irvinsegura.wallet.payments.domain.model.Payment;
 import com.irvinsegura.wallet.payments.domain.model.PaymentStatus;
 import com.irvinsegura.wallet.payments.domain.model.ProviderBalance;
+import com.irvinsegura.wallet.payments.domain.model.ProviderBalanceSnapshot;
 import com.irvinsegura.wallet.payments.domain.model.ProviderTransaction;
+import com.irvinsegura.wallet.payments.domain.model.ProviderTransactionNotFoundException;
+import com.irvinsegura.wallet.payments.domain.model.ProviderTransactionNotUnmatchedException;
 import com.irvinsegura.wallet.payments.domain.port.PaymentGateway;
 import com.irvinsegura.wallet.payments.domain.port.PaymentRepository;
+import com.irvinsegura.wallet.payments.domain.port.ProviderBalanceSnapshotRepository;
 import com.irvinsegura.wallet.payments.domain.port.ProviderTransactionRepository;
 import com.irvinsegura.wallet.shared.domain.Money;
 import java.time.Clock;
@@ -22,10 +27,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,25 +59,28 @@ public class ProviderBalanceService {
 
     private final PaymentGateway gateway;
     private final ProviderTransactionRepository transactions;
+    private final ProviderBalanceSnapshotRepository snapshots;
     private final PaymentRepository payments;
     private final Ledger ledger;
     private final Clock clock;
     private final TransactionTemplate transaction;
+    private final ApplicationEventPublisher events;
     private final Duration overlap;
     private final Duration matchWindow;
-    // Provider balance minus the clearing account, per currency, as of the last run
-    private final Map<String, Long> differences = new ConcurrentHashMap<>();
 
     ProviderBalanceService(PaymentGateway gateway, ProviderTransactionRepository transactions,
-            PaymentRepository payments, Ledger ledger, Clock clock, PlatformTransactionManager transactionManager,
+            ProviderBalanceSnapshotRepository snapshots, PaymentRepository payments, Ledger ledger, Clock clock,
+            PlatformTransactionManager transactionManager, ApplicationEventPublisher events,
             @Value("${wallet.payments.provider-sync.overlap}") Duration overlap,
             @Value("${wallet.payments.provider-sync.match-window}") Duration matchWindow) {
         this.gateway = gateway;
         this.transactions = transactions;
+        this.snapshots = snapshots;
         this.payments = payments;
         this.ledger = ledger;
         this.clock = clock;
         this.transaction = new TransactionTemplate(transactionManager);
+        this.events = events;
         this.overlap = overlap;
         this.matchWindow = matchWindow;
     }
@@ -125,15 +134,54 @@ public class ProviderBalanceService {
      * recorded; it stays off while a payment's webhook has not arrived yet.
      */
     public Map<String, Long> balanceDifferences() {
-        return Map.copyOf(differences);
+        return balanceComparisons().stream().collect(Collectors.toMap(ProviderBalanceSnapshot::currency,
+                ProviderBalanceSnapshot::differenceMinor));
+    }
+
+    /**
+     * The last comparison per currency for the provider in use; empty until the first one, or with a provider that
+     * does not hold money.
+     */
+    public List<ProviderBalanceSnapshot> balanceComparisons() {
+        return snapshots.findByProvider(gateway.name());
+    }
+
+    public String providerName() {
+        return gateway.name();
+    }
+
+    public boolean providerHoldsFunds() {
+        return gateway.holdsFunds();
     }
 
     /**
      * For a person to look at, newest first.
+     *
+     * @param status null for every status
      */
     @Transactional(readOnly = true)
-    public List<ProviderTransaction> transactionsWithStatus(ProviderTransaction.Status status, int limit) {
-        return transactions.findByStatus(status, limit);
+    public List<ProviderTransaction> transactions(ProviderTransaction.Status status, int limit) {
+        return transactions.find(status, limit);
+    }
+
+    /**
+     * Closes an unmatched movement with what the person who looked at it concluded. Posts nothing: if the ledger needs
+     * correcting, that is a separate step.
+     *
+     * @throws ProviderTransactionNotFoundException     if there is no such movement
+     * @throws ProviderTransactionNotUnmatchedException if it is not waiting for a person, e.g. it was already closed
+     */
+    @Transactional
+    public ProviderTransaction resolve(String provider, String id, UUID administratorId, String reason) {
+        ProviderTransaction row = transactions.findByIdForUpdate(provider, id)
+                .orElseThrow(ProviderTransactionNotFoundException::new);
+        if (row.status() != ProviderTransaction.Status.UNMATCHED) {
+            throw new ProviderTransactionNotUnmatchedException();
+        }
+        Instant now = clock.instant();
+        transactions.resolve(provider, id, administratorId, reason, now);
+        events.publishEvent(new ProviderTransactionResolved(provider, id, administratorId, reason, now));
+        return transactions.findByIdForUpdate(provider, id).orElseThrow();
     }
 
     private ProviderTransaction.Status settle(String provider, String id) {
@@ -253,11 +301,12 @@ public class ProviderBalanceService {
                 Currency currency = currency(balance.currency());
                 UUID clearing = ledger.providerClearingAccount(currency);
                 long recorded = ledger.balanceOf(clearing).minorUnits();
-                long difference = balance.amountMinor() - recorded;
-                differences.put(currency.getCurrencyCode(), difference);
-                if (difference != 0) {
-                    log.info("Provider holds {} {} more than the clearing account records", difference,
-                            currency.getCurrencyCode());
+                ProviderBalanceSnapshot snapshot = new ProviderBalanceSnapshot(gateway.name(),
+                        currency.getCurrencyCode(), balance.amountMinor(), recorded, clock.instant());
+                snapshots.save(snapshot);
+                if (snapshot.differenceMinor() != 0) {
+                    log.info("Provider holds {} {} more than the clearing account records",
+                            snapshot.differenceMinor(), currency.getCurrencyCode());
                 }
             } catch (UnsupportedCurrencyException e) {
                 log.warn("Provider holds {} in unsupported currency {}", balance.amountMinor(), balance.currency());

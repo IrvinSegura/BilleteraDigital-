@@ -4,6 +4,8 @@ import com.irvinsegura.wallet.accounts.BankAccountAdded;
 import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.accounts.Wallets;
 import com.irvinsegura.wallet.identity.PasswordChanged;
+import com.irvinsegura.wallet.identity.TwoFactorDisabled;
+import com.irvinsegura.wallet.identity.TwoFactorEnabled;
 import com.irvinsegura.wallet.identity.UserContact;
 import com.irvinsegura.wallet.identity.UserDirectory;
 import com.irvinsegura.wallet.identity.UserLockedOut;
@@ -60,6 +62,18 @@ class NotificationEventListener {
     void on(PasswordChanged event) {
         notifications.deliver(NotificationMessages.passwordChanged(event.userId(), "RESET".equals(event.method()),
                 event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(TwoFactorEnabled event) {
+        notifications.deliver(NotificationMessages.twoFactorEnabled(event.userId(), event.occurredAt()));
+    }
+
+    // Also emailed, like a password change: turning it off is what someone who took over the account would do
+    @ApplicationModuleListener
+    void on(TwoFactorDisabled event) {
+        notifications.deliver(NotificationMessages.twoFactorDisabled(event.userId(),
+                !event.userId().equals(event.disabledBy()), event.occurredAt()));
     }
 
     @ApplicationModuleListener

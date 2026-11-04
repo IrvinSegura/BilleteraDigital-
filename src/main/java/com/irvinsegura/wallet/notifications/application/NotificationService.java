@@ -2,12 +2,15 @@ package com.irvinsegura.wallet.notifications.application;
 
 import com.irvinsegura.wallet.notifications.domain.model.Notification;
 import com.irvinsegura.wallet.notifications.domain.model.NotificationNotFoundException;
+import com.irvinsegura.wallet.notifications.domain.port.LiveNotifier;
 import com.irvinsegura.wallet.notifications.domain.port.NotificationRepository;
 import java.time.Clock;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * The user's inbox. Every query is scoped to the user id from the access token, so users only see their own.
@@ -16,11 +19,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final LiveNotifier liveNotifier;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
-    NotificationService(NotificationRepository notificationRepository, ApplicationEventPublisher events, Clock clock) {
+    NotificationService(NotificationRepository notificationRepository, LiveNotifier liveNotifier,
+            ApplicationEventPublisher events, Clock clock) {
         this.notificationRepository = notificationRepository;
+        this.liveNotifier = liveNotifier;
         this.events = events;
         this.clock = clock;
     }
@@ -59,6 +65,17 @@ public class NotificationService {
     void deliver(Notification notification) {
         if (notificationRepository.add(notification)) {
             events.publishEvent(new NotificationCreated(notification.id(), notification.userId()));
+            // Only once it is committed, or an app could fetch the inbox before the notification is in it
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        liveNotifier.push(notification);
+                    }
+                });
+            } else {
+                liveNotifier.push(notification);
+            }
         }
     }
 }

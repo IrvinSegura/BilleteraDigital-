@@ -2,9 +2,11 @@ package com.irvinsegura.wallet.accounts.web;
 
 import com.irvinsegura.wallet.accounts.application.BankAccountService;
 import com.irvinsegura.wallet.accounts.application.BankAccountSummary;
+import com.irvinsegura.wallet.shared.web.PlainText;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.time.Instant;
@@ -38,7 +40,8 @@ class BankAccountController {
     @PostMapping
     ResponseEntity<BankAccountResponse> add(@AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody AddBankAccountRequest request) {
-        BankAccountSummary bankAccount = bankAccountService.add(userId(jwt), request.clabe(), request.holderName());
+        BankAccountSummary bankAccount = bankAccountService.add(userId(jwt), request.clabe(), request.holderName(),
+                request.twoFactorCode());
         return ResponseEntity.created(URI.create("/api/v1/bank-accounts/" + bankAccount.id()))
                 .body(BankAccountResponse.from(bankAccount));
     }
@@ -58,16 +61,22 @@ class BankAccountController {
         return UUID.fromString(jwt.getSubject());
     }
 
-    // Spaces and dashes are allowed in the CLABE; the domain checks the digits themselves
+    /**
+     * Spaces and dashes are allowed in the CLABE; the domain checks the digits themselves.
+     *
+     * @param twoFactorCode the authenticator app's code or a recovery code, for users with two-factor
+     *                      authentication on
+     */
     record AddBankAccountRequest(@NotBlank @Size(max = 30) String clabe,
-            @NotBlank @Size(max = 100) String holderName) {
+            @NotBlank @Size(max = 100) @Pattern(regexp = PlainText.NO_MARKUP, message = PlainText.NO_MARKUP_MESSAGE) String holderName, @Size(max = 20) String twoFactorCode) {
     }
 
-    record BankAccountResponse(UUID id, String bankCode, String clabeLastFour, String holderName, Instant createdAt) {
+    record BankAccountResponse(UUID id, String bankCode, String clabeLastFour, String holderName, Instant createdAt,
+            Instant withdrawalsAvailableFrom) {
 
         static BankAccountResponse from(BankAccountSummary bankAccount) {
             return new BankAccountResponse(bankAccount.id(), bankAccount.bankCode(), bankAccount.clabeLastFour(),
-                    bankAccount.holderName(), bankAccount.createdAt());
+                    bankAccount.holderName(), bankAccount.createdAt(), bankAccount.withdrawalsAvailableFrom());
         }
     }
 }

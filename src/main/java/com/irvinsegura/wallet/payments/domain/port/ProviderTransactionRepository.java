@@ -5,6 +5,7 @@ import com.irvinsegura.wallet.payments.domain.model.ProviderTransaction;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface ProviderTransactionRepository {
 
@@ -27,8 +28,10 @@ public interface ProviderTransactionRepository {
 
     void settle(String provider, String id, ProviderTransaction.Status status, String note, Instant now);
 
+    void resolve(String provider, String id, UUID resolvedBy, String reason, Instant now);
+
     /**
-     * Newest first.
+     * Newest first; a null status matches every status.
      */
-    List<ProviderTransaction> findByStatus(ProviderTransaction.Status status, int limit);
+    List<ProviderTransaction> find(ProviderTransaction.Status status, int limit);
 }

@@ -9,17 +9,26 @@ import com.irvinsegura.wallet.audit.domain.port.AuditLogRepository;
 import com.irvinsegura.wallet.identity.EmailVerified;
 import com.irvinsegura.wallet.identity.PasswordChanged;
 import com.irvinsegura.wallet.identity.PasswordResetRequested;
+import com.irvinsegura.wallet.identity.ProfileUpdated;
+import com.irvinsegura.wallet.identity.SessionsRevoked;
+import com.irvinsegura.wallet.identity.TwoFactorDisabled;
+import com.irvinsegura.wallet.identity.TwoFactorEnabled;
 import com.irvinsegura.wallet.identity.UserLockedOut;
 import com.irvinsegura.wallet.identity.UserRegistered;
+import com.irvinsegura.wallet.identity.UserSignedIn;
 import com.irvinsegura.wallet.identity.UserStatusChanged;
 import com.irvinsegura.wallet.identity.UserUnlocked;
 import com.irvinsegura.wallet.ledger.CapitalContributed;
+import com.irvinsegura.wallet.payments.ProviderTransactionResolved;
 import com.irvinsegura.wallet.shared.domain.Money;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.DepositRejected;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
 import com.irvinsegura.wallet.transfers.WithdrawalCompleted;
 import com.irvinsegura.wallet.transfers.WithdrawalFailed;
+import com.irvinsegura.wallet.transfers.WithdrawalRequested;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +42,7 @@ class AuditEventListener {
     private static final String USER = "USER";
     private static final String WALLET = "WALLET";
     private static final String LEDGER_ENTRY = "LEDGER_ENTRY";
+    private static final String PROVIDER_TRANSACTION = "PROVIDER_TRANSACTION";
 
     private final AuditLogRepository auditLog;
 
@@ -44,6 +54,12 @@ class AuditEventListener {
     void on(UserRegistered event) {
         auditLog.append(AuditEntry.of("USER_REGISTERED", event.userId().toString(), event.occurredAt(),
                 event.userId(), USER, event.userId(), "role " + event.role()));
+    }
+
+    @ApplicationModuleListener
+    void on(UserSignedIn event) {
+        auditLog.append(AuditEntry.of("USER_SIGNED_IN", event.userId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.userId(), USER, event.userId(), null));
     }
 
     @ApplicationModuleListener
@@ -74,9 +90,34 @@ class AuditEventListener {
     }
 
     @ApplicationModuleListener
+    void on(ProfileUpdated event) {
+        auditLog.append(AuditEntry.of("PROFILE_UPDATED", event.userId() + "@" + event.occurredAt(),
+                event.occurredAt(), event.userId(), USER, event.userId(), String.join(", ", event.fields())));
+    }
+
+    @ApplicationModuleListener
+    void on(SessionsRevoked event) {
+        auditLog.append(AuditEntry.of("SESSIONS_REVOKED", event.userId() + "@" + event.occurredAt(),
+                event.occurredAt(), event.userId(), USER, event.userId(), event.count() + " ended"));
+    }
+
+    @ApplicationModuleListener
+    void on(TwoFactorEnabled event) {
+        auditLog.append(AuditEntry.of("TWO_FACTOR_ENABLED", event.userId() + "@" + event.occurredAt(),
+                event.occurredAt(), event.userId(), USER, event.userId(), null));
+    }
+
+    @ApplicationModuleListener
+    void on(TwoFactorDisabled event) {
+        auditLog.append(AuditEntry.of("TWO_FACTOR_DISABLED", event.userId() + "@" + event.occurredAt(),
+                event.occurredAt(), event.disabledBy(), USER, event.userId(),
+                event.reason() == null ? null : "reason: " + event.reason()));
+    }
+
+    @ApplicationModuleListener
     void on(UserUnlocked event) {
         auditLog.append(AuditEntry.of("USER_UNLOCKED", event.userId() + "@" + event.occurredAt(), event.occurredAt(),
-                event.unlockedBy(), USER, event.userId(), null));
+                event.unlockedBy(), USER, event.userId(), "reason: " + event.reason()));
     }
 
     @ApplicationModuleListener
@@ -137,6 +178,14 @@ class AuditEventListener {
                         money(event.amountMinor(), event.currency()), event.reason())));
     }
 
+    // Money leaving a taken-over account shows up here, before the bank answers
+    @ApplicationModuleListener
+    void on(WithdrawalRequested event) {
+        auditLog.append(AuditEntry.of("WITHDRAWAL_REQUESTED", event.withdrawalId().toString(), event.occurredAt(),
+                event.userId(), WALLET, event.walletId(),
+                "withdrawal %s: %s".formatted(event.withdrawalId(), money(event.amountMinor(), event.currency()))));
+    }
+
     @ApplicationModuleListener
     void on(WithdrawalCompleted event) {
         auditLog.append(AuditEntry.of("WITHDRAWAL_COMPLETED", event.withdrawalId().toString(), event.occurredAt(),
@@ -158,6 +207,15 @@ class AuditEventListener {
                 event.senderId(), WALLET, event.sourceWalletId(),
                 "transfer %s: %s to wallet %s".formatted(event.transferId(),
                         money(event.amountMinor(), event.currency()), event.destinationWalletId())));
+    }
+
+    // The provider's ids are not UUIDs: the target is derived from one, which the details spell out
+    @ApplicationModuleListener
+    void on(ProviderTransactionResolved event) {
+        String key = event.provider() + ":" + event.transactionId();
+        auditLog.append(AuditEntry.of("PROVIDER_TRANSACTION_RESOLVED", key, event.occurredAt(), event.resolvedBy(),
+                PROVIDER_TRANSACTION, UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)),
+                "%s %s, reason: %s".formatted(event.provider(), event.transactionId(), event.reason())));
     }
 
     private static String money(long minorUnits, String currency) {

@@ -2,11 +2,18 @@ package com.irvinsegura.wallet.identity.web;
 
 import com.irvinsegura.wallet.identity.AccountDisabledException;
 import com.irvinsegura.wallet.identity.EmailNotVerifiedException;
+import com.irvinsegura.wallet.identity.PasswordConfirmationRequiredException;
+import com.irvinsegura.wallet.identity.TwoFactorRequiredException;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
+import com.irvinsegura.wallet.identity.domain.model.AdminTwoFactorRequiredException;
 import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyRegisteredException;
+import com.irvinsegura.wallet.identity.domain.model.EmailVerificationRequiredException;
 import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyVerifiedException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidCredentialsException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidRefreshTokenException;
+import com.irvinsegura.wallet.identity.domain.model.TwoFactorAlreadyEnabledException;
+import com.irvinsegura.wallet.identity.domain.model.TwoFactorNotEnabledException;
+import com.irvinsegura.wallet.identity.domain.model.SessionNotFoundException;
 import com.irvinsegura.wallet.identity.domain.model.UserNotFoundException;
 import com.irvinsegura.wallet.shared.domain.DomainException;
 import com.irvinsegura.wallet.shared.web.Problems;
@@ -34,15 +41,23 @@ class IdentityExceptionHandler {
         return Problems.create(HttpStatus.UNAUTHORIZED, "Authentication failed", ex.getMessage(), ex.getCode());
     }
 
-    @ExceptionHandler({EmailAlreadyRegisteredException.class, EmailAlreadyVerifiedException.class})
+    @ExceptionHandler({EmailAlreadyRegisteredException.class, EmailAlreadyVerifiedException.class,
+            TwoFactorAlreadyEnabledException.class, TwoFactorNotEnabledException.class})
     ProblemDetail handleConflict(DomainException ex) {
         return Problems.create(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode());
     }
 
     // Authenticated, but this account is not allowed to do it
-    @ExceptionHandler({AccountDisabledException.class, EmailNotVerifiedException.class})
+    @ExceptionHandler({AccountDisabledException.class, EmailNotVerifiedException.class,
+            EmailVerificationRequiredException.class, TwoFactorRequiredException.class, PasswordConfirmationRequiredException.class,
+            AdminTwoFactorRequiredException.class})
     ProblemDetail handleAccountNotAllowed(DomainException ex) {
         return Problems.create(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage(), ex.getCode());
+    }
+
+    @ExceptionHandler(SessionNotFoundException.class)
+    ProblemDetail handleSessionNotFound(SessionNotFoundException ex) {
+        return Problems.create(HttpStatus.NOT_FOUND, "Not found", ex.getMessage(), ex.getCode());
     }
 
     @ExceptionHandler(UserNotFoundException.class)

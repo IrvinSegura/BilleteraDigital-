@@ -1,12 +1,20 @@
 # Local development: Flyway migrates with the schema owner, the app connects with the restricted user
 spring:
+  config:
+    # Runs from the IDE read the same gitignored .env as docker compose; real environment variables still win
+    import: optional:file:.env[.properties]
   flyway:
     user: ${DB_OWNER_USER:wallet_owner}
     password: ${DB_OWNER_PASSWORD:wallet_owner_dev}
-  # Mailpit from `docker compose up -d`; read the emails at http://localhost:8025
+  # Real emails through Gmail, as in production: MAIL_USERNAME and MAIL_PASSWORD (an app password) come from .env
   mail:
-    host: ${MAIL_HOST:localhost}
-    port: ${MAIL_PORT:1025}
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      "[mail.smtp.auth]": ${MAIL_SMTP_AUTH:true}
+      "[mail.smtp.starttls.enable]": true
 
 springdoc:
   api-docs:
@@ -18,13 +26,14 @@ management:
   # Actuator on its own port, as in production, so the local Prometheus can scrape without a token
   server:
     port: ${MANAGEMENT_PORT:8081}
-  endpoint:
-    health:
-      show-details: always
   tracing:
     sampling:
       probability: 1.0
-  # Tempo from `docker compose --profile observability up -d`; while it is not running, exports fail with warnings
+    # Off unless the observability stack is up (`docker compose --profile observability up -d`, then
+    # TRACE_EXPORT=true): without Tempo every export logs a connection error with its stack trace
+    export:
+      otlp:
+        enabled: ${TRACE_EXPORT:false}
   opentelemetry:
     tracing:
       export:
@@ -35,6 +44,8 @@ wallet:
   notifications:
     email:
       delivery: smtp
+      # Gmail sends from the signed-in account whatever this says; only the display name is kept
+      from: ${EMAIL_FROM:Digital Wallet <no-reply@wallet.local>}
   identity:
     jwt:
       # Temporary key pair per run: restarting the app logs everyone out
@@ -42,3 +53,6 @@ wallet:
     admin:
       email: ${ADMIN_EMAIL:admin@wallet.local}
       password: ${ADMIN_PASSWORD:admin-dev-password}
+    # Development only: a fixed key, so authenticator apps set up locally keep working across restarts
+    two-factor:
+      encryption-key: ${TWO_FACTOR_ENCRYPTION_KEY:ZGV2LW9ubHktdHdvLWZhY3Rvci1rZXktMzItYnl0ZXM=}

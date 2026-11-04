@@ -4,8 +4,12 @@ import com.irvinsegura.wallet.identity.domain.model.RefreshToken;
 import com.irvinsegura.wallet.identity.domain.model.UserId;
 import com.irvinsegura.wallet.identity.domain.port.RefreshTokenRepository;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -30,6 +34,20 @@ class RefreshTokenPersistenceAdapter implements RefreshTokenRepository {
     @Override
     public void revokeFamily(UUID familyId, Instant now) {
         jpaRepository.revokeFamily(familyId, now);
+    }
+
+    @Override
+    public List<RefreshToken> findLiveByUser(UserId userId, Instant now) {
+        return jpaRepository.findLiveByUser(userId.value(), now).stream().map(RefreshTokenEntity::toDomain).toList();
+    }
+
+    @Override
+    public Map<UUID, Instant> sessionStarts(Collection<UUID> familyIds) {
+        if (familyIds.isEmpty()) {
+            return Map.of();
+        }
+        return jpaRepository.sessionStarts(familyIds).stream()
+                .collect(Collectors.toMap(SessionStartRow::familyId, SessionStartRow::startedAt));
     }
 
     @Override

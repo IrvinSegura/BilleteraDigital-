@@ -52,7 +52,7 @@ public class AdminProvisioningService {
             }
             return;
         }
-        PasswordPolicy.check(rawPassword);
+        PasswordPolicy.check(rawPassword, rawEmail);
         User admin = User.registerAdmin(email, passwordHasher.hash(rawPassword), ADMIN_NAME, clock.instant());
         userRepository.save(admin);
         events.publishEvent(new UserRegistered(admin.id().value(), admin.role().name(), admin.createdAt()));

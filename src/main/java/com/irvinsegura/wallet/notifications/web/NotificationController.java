@@ -1,24 +1,34 @@
 package com.irvinsegura.wallet.notifications.web;
 
+import com.irvinsegura.wallet.notifications.application.NotificationPreferencesService;
 import com.irvinsegura.wallet.notifications.application.NotificationService;
+import com.irvinsegura.wallet.notifications.domain.model.EmailPreferences;
 import com.irvinsegura.wallet.notifications.domain.model.Notification;
 import com.irvinsegura.wallet.notifications.domain.port.NotificationRepository;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/v1/notifications")
@@ -26,9 +36,14 @@ import org.springframework.web.bind.annotation.RestController;
 class NotificationController {
 
     private final NotificationService notificationService;
+    private final NotificationPreferencesService preferencesService;
+    private final NotificationStreamHub streamHub;
 
-    NotificationController(NotificationService notificationService) {
+    NotificationController(NotificationService notificationService,
+            NotificationPreferencesService preferencesService, NotificationStreamHub streamHub) {
         this.notificationService = notificationService;
+        this.preferencesService = preferencesService;
+        this.streamHub = streamHub;
     }
 
     @GetMapping
@@ -39,6 +54,20 @@ class NotificationController {
         NotificationRepository.NotificationSlice slice = notificationService.list(userId(jwt), unreadOnly, page, size);
         return new NotificationPageResponse(slice.items().stream().map(NotificationResponse::from).toList(), page,
                 size, slice.hasNext());
+    }
+
+    /**
+     * Server-sent events: {@code ready} once connected, then a {@code notification} event ({@code id}, {@code type},
+     * {@code title}) as each notification arrives. The stream closes after a few minutes; reconnect with a current
+     * access token.
+     */
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    ResponseEntity<SseEmitter> stream(@AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok()
+                // nginx would otherwise buffer the stream and deliver events late
+                .header("X-Accel-Buffering", "no")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(streamHub.open(userId(jwt)));
     }
 
     // Cheap enough for clients to poll for a badge
@@ -59,8 +88,37 @@ class NotificationController {
         notificationService.markAllRead(userId(jwt));
     }
 
+    /**
+     * Which notifications also arrive by email. Security notices and failed operations always do.
+     */
+    @GetMapping("/preferences")
+    PreferencesResponse preferences(@AuthenticationPrincipal Jwt jwt) {
+        return PreferencesResponse.from(preferencesService.get(userId(jwt)));
+    }
+
+    @PutMapping("/preferences")
+    PreferencesResponse updatePreferences(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody PreferencesRequest request) {
+        return PreferencesResponse.from(preferencesService.update(userId(jwt),
+                new EmailPreferences(request.emailMoneyIn(), request.emailMoneyOut())));
+    }
+
     private static UUID userId(Jwt jwt) {
         return UUID.fromString(jwt.getSubject());
+    }
+
+    /**
+     * @param emailMoneyIn  email for deposits and transfers received
+     * @param emailMoneyOut email for transfers sent and withdrawals
+     */
+    record PreferencesRequest(@NotNull Boolean emailMoneyIn, @NotNull Boolean emailMoneyOut) {
+    }
+
+    record PreferencesResponse(boolean emailMoneyIn, boolean emailMoneyOut) {
+
+        static PreferencesResponse from(EmailPreferences preferences) {
+            return new PreferencesResponse(preferences.moneyIn(), preferences.moneyOut());
+        }
     }
 
     record NotificationResponse(UUID id, String type, String title, String body, UUID referenceId, boolean read,

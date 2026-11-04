@@ -41,6 +41,15 @@ class PasswordVerifier {
         if (passwordHasher.matches(rawPassword, user.passwordHash())) {
             return true;
         }
+        recordFailedAttempt(user, now);
+        return false;
+    }
+
+    /**
+     * Counts a wrong credential of any kind, e.g. a wrong second factor, toward the lockout. Same transaction rule as
+     * {@link #verify}.
+     */
+    void recordFailedAttempt(User user, Instant now) {
         user.recordFailedLogin(now, lockoutPolicy);
         userRepository.save(user);
         if (user.isLockedAt(now)) {
@@ -48,6 +57,5 @@ class PasswordVerifier {
                     user.failedLoginAttempts());
             events.publishEvent(new UserLockedOut(user.id().value(), user.lockedUntil(), now));
         }
-        return false;
     }
 }
