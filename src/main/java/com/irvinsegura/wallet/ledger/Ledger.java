@@ -1,7 +1,12 @@
 package com.irvinsegura.wallet.ledger;
 
 import com.irvinsegura.wallet.shared.domain.Money;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Currency;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -65,7 +70,36 @@ public interface Ledger {
     Money balanceOf(UUID accountId);
 
     /**
+     * The account's balance just before {@code at}: after its last movement posted earlier, zero before the first.
+     */
+    Money balanceAt(UUID accountId, Instant at);
+
+    /**
      * Movements of an account, newest first.
      */
     MovementPage movementsOf(UUID accountId, int page, int size);
+
+    /**
+     * Movements of an account that match {@code filter}, newest first.
+     */
+    MovementPage movementsOf(UUID accountId, MovementFilter filter, int page, int size);
+
+    /**
+     * The movement a journal entry made on the account; empty if the entry didn't touch it.
+     */
+    Optional<AccountMovement> movementOf(UUID accountId, UUID journalEntryId);
+
+    /**
+     * Totals of an account's movements posted from {@code from} (inclusive) to {@code to} (exclusive), summed in
+     * minor units so no cent is lost.
+     */
+    FlowTotals flowsOf(UUID accountId, Instant from, Instant to);
+
+    /**
+     * The account's balance at the end of each day from {@code from} to {@code to}, both included, oldest first.
+     * Days are counted in {@code zone}; a day without movements closes with the previous day's balance.
+     *
+     * @throws IllegalArgumentException if {@code from} is after {@code to}
+     */
+    List<DailyBalance> dailyBalancesOf(UUID accountId, LocalDate from, LocalDate to, ZoneId zone);
 }

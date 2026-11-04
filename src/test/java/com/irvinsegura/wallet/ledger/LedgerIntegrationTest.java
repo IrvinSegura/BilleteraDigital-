@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.irvinsegura.wallet.TestcontainersConfiguration;
 import com.irvinsegura.wallet.shared.domain.Money;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
@@ -78,6 +81,45 @@ class LedgerIntegrationTest {
         assertThat(latest.balanceAfter()).isEqualTo(mxn(7_500));
         assertThat(ledger.movementsOf(alice, 1, 1).items().getFirst().direction())
                 .isEqualTo(AccountMovement.Direction.IN);
+    }
+
+    @Test
+    void flowsAddUpEveryMovementOfThePeriodOnBothSides() {
+        Instant start = Instant.now().minusSeconds(60);
+        UUID alice = fundedAccount(10_000);
+        UUID bob = fundedAccount(0);
+        ledger.record(new NewJournalEntry("TRANSFER", null, alice, bob, mxn(2_500)));
+        ledger.record(new NewJournalEntry("TRANSFER", null, alice, bob, mxn(1_250)));
+        Instant end = Instant.now().plusSeconds(60);
+
+        assertThat(ledger.flowsOf(alice, start, end)).isEqualTo(new FlowTotals(mxn(10_000), mxn(3_750)));
+        assertThat(ledger.flowsOf(bob, start, end)).isEqualTo(new FlowTotals(mxn(3_750), mxn(0)));
+        // The end is exclusive and a later period has nothing
+        assertThat(ledger.flowsOf(alice, end, end.plusSeconds(60))).isEqualTo(new FlowTotals(mxn(0), mxn(0)));
+        assertThat(ledger.flowsOf(alice, start.minusSeconds(60), start)).isEqualTo(new FlowTotals(mxn(0), mxn(0)));
+    }
+
+    @Test
+    void dailyBalancesCloseEachLocalDayWithItsLastMovement() {
+        UUID alice = fundedAccount(10_000);
+        ledger.record(new NewJournalEntry("TRANSFER", null, alice, fundedAccount(0), mxn(2_500)));
+
+        // Far apart zones put the same instant on different dates; each must count the day in its own zone
+        for (ZoneId zone : List.of(ZoneId.of("America/Mexico_City"), ZoneId.of("Pacific/Kiritimati"),
+                ZoneId.of("Pacific/Pago_Pago"))) {
+            LocalDate today = LocalDate.now(zone);
+
+            List<DailyBalance> days = ledger.dailyBalancesOf(alice, today.minusDays(2), today, zone);
+
+            assertThat(days).extracting(DailyBalance::date)
+                    .containsExactly(today.minusDays(2), today.minusDays(1), today);
+            assertThat(days).extracting(DailyBalance::balance).containsExactly(mxn(0), mxn(0), mxn(7_500));
+            // A day after the movements opens with the balance they left
+            assertThat(ledger.dailyBalancesOf(alice, today.plusDays(1), today.plusDays(1), zone))
+                    .extracting(DailyBalance::balance).containsExactly(mxn(7_500));
+        }
+        assertThatThrownBy(() -> ledger.dailyBalancesOf(alice, LocalDate.now(), LocalDate.now().minusDays(1),
+                ZoneId.of("UTC"))).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
