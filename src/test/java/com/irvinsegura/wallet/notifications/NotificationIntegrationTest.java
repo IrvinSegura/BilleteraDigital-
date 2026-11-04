@@ -4,8 +4,11 @@ import static com.irvinsegura.wallet.support.ApiClient.newKey;
 import static com.irvinsegura.wallet.support.ApiClient.read;
 import static com.irvinsegura.wallet.support.Eventually.assertEventually;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.irvinsegura.wallet.TestcontainersConfiguration;
@@ -25,10 +28,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -199,6 +204,73 @@ class NotificationIntegrationTest {
     private ResultActions markRead(TestUser user, String notificationId) throws Exception {
         return mockMvc.perform(post(NOTIFICATIONS + "/" + notificationId + "/read")
                 .header("Authorization", user.bearer()));
+    }
+
+    @Test
+    void moneyEmailsCanBeTurnedOffWhileTheInboxKeepsEverything() throws Exception {
+        TestUser sender = api.newUser();
+        TestUser recipient = api.newUser();
+        String sourceWalletId = api.openWalletId(sender, "MXN");
+        api.openWalletId(recipient, "MXN");
+        api.get(recipient, NOTIFICATIONS + "/preferences")
+                .andExpect(jsonPath("$.emailMoneyIn").value(true))
+                .andExpect(jsonPath("$.emailMoneyOut").value(true));
+
+        putPreferences(recipient, """
+                {"emailMoneyIn": false, "emailMoneyOut": true}""")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.emailMoneyIn").value(false));
+        putPreferences(recipient, """
+                {"emailMoneyIn": false}""").andExpect(status().isBadRequest());
+        api.deposit(sender, sourceWalletId, "100.00").andExpect(status().isCreated());
+        api.transfer(sender, sourceWalletId, recipient.email(), "30.25", newKey()).andExpect(status().isCreated());
+
+        assertEventually(() -> assertThat(typesFor(recipient)).containsExactly("TRANSFER_RECEIVED", "WELCOME"));
+        // The sender's copy goes out with the same publication run, so once it arrives the recipient's would have
+        assertEventually(() -> assertThat(mailbox.subjectsFor(sender.email())).contains("Transfer sent"));
+        String recipientId = read(api.get(recipient, "/api/v1/users/me"), "$.id");
+        assertEventually(() -> assertThat(pendingPublicationsFor(recipientId)).isZero());
+        assertThat(mailbox.subjectsFor(recipient.email())).doesNotContain("Money received");
+    }
+
+    @Test
+    void theStreamPushesEachNewNotificationToTheOwner() throws Exception {
+        TestUser user = api.newUser();
+        TestUser other = api.newUser();
+        String walletId = api.openWalletId(user, "MXN");
+        MvcResult stream = openStream(user);
+        MvcResult otherStream = openStream(other);
+
+        api.deposit(user, walletId, "12.00").andExpect(status().isCreated());
+
+        assertEventually(() -> assertThat(stream.getResponse().getContentAsString())
+                .contains("event:ready")
+                .contains("event:notification")
+                .contains("\"type\":\"DEPOSIT_RECEIVED\""));
+        assertThat(otherStream.getResponse().getContentAsString()).doesNotContain("DEPOSIT_RECEIVED");
+        assertThat(stream.getResponse().getContentType()).startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
+    }
+
+    private MvcResult openStream(TestUser user) throws Exception {
+        return mockMvc.perform(get(NOTIFICATIONS + "/stream")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + user.token())
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+    }
+
+    private ResultActions putPreferences(TestUser user, String json) throws Exception {
+        return mockMvc.perform(put(NOTIFICATIONS + "/preferences")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + user.token())
+                .contentType(MediaType.APPLICATION_JSON).content(json));
+    }
+
+    // Events naming the user that a listener hasn't finished with yet
+    private long pendingPublicationsFor(String userId) {
+        Long pending = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM event_publication WHERE completion_date IS NULL AND serialized_event LIKE ?",
+                Long.class, "%" + userId + "%");
+        return pending == null ? 0 : pending;
     }
 
     private String inbox(TestUser user, String query) throws Exception {
