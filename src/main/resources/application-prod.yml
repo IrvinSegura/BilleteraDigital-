@@ -7,9 +7,10 @@ spring:
   flyway:
     user: ${DB_OWNER_USER}
     password: ${DB_OWNER_PASSWORD}
-  # SMTP relay of a transactional email provider; STARTTLS is used whenever the server offers it
+  # Gmail by default (MAIL_USERNAME plus an app password as MAIL_PASSWORD); MAIL_HOST points elsewhere, e.g. a
+  # transactional email provider's SMTP relay. STARTTLS is used whenever the server offers it
   mail:
-    host: ${MAIL_HOST:}
+    host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
@@ -39,13 +40,24 @@ logging:
       console: ecs
 
 wallet:
+  management:
+    # Prometheus sends it as HTTP Basic (user "prometheus"); without it the management port would hand metrics and
+    # module details to anyone who reaches it
+    scrape-password: ${MANAGEMENT_SCRAPE_PASSWORD}
   identity:
+    # Turnstile keys from the Cloudflare dashboard; CAPTCHA_ENABLED=false only behind another bot protection
+    captcha:
+      enabled: ${CAPTCHA_ENABLED:true}
     jwt:
       # e.g. file:/run/secrets/jwt-private.pem (PKCS#8) and file:/run/secrets/jwt-public.pem (X.509)
       private-key-location: ${JWT_PRIVATE_KEY_LOCATION:}
       public-key-location: ${JWT_PUBLIC_KEY_LOCATION:}
       # Only for running the production image locally; real deployments must provide the keys
       generate-keys-if-missing: ${JWT_GENERATE_KEYS_IF_MISSING:false}
+    # Base64 of 32 random bytes (`openssl rand -base64 32`); keep it with the other secrets, losing it disables
+    # every authenticator app already set up
+    two-factor:
+      encryption-key: ${TWO_FACTOR_ENCRYPTION_KEY:}
   notifications:
     email:
       # smtp needs MAIL_HOST; log turns email off (e.g. a demo deployment without a mail server)
@@ -53,6 +65,11 @@ wallet:
       from: ${EMAIL_FROM}
       # Public address of the client app, e.g. https://wallet.example.com; email links point to it
       app-url: ${APP_URL}
+  transfers:
+    payouts:
+      # No default: the only payout provider so far is simulated, which sends no real money; set
+      # PAYOUT_PROVIDER=simulated only for demo deployments
+      provider: ${PAYOUT_PROVIDER:}
   payments:
     # stripe needs STRIPE_API_KEY and STRIPE_WEBHOOK_SECRET; simulated is only for demo deployments without real money
     provider: ${PAYMENT_PROVIDER:stripe}

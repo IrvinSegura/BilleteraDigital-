@@ -22,6 +22,8 @@ spring:
       enabled: true
   threads:
     virtual:
+      # Needs JDK 25: on JDK 21 for Windows the JVM crashed natively (0xC0000005) while a notification went out over
+      # the SSE stream
       enabled: true
   modulith:
     events:
@@ -35,6 +37,11 @@ spring:
         published: 10m
         processing: 10m
         resubmitted: 10m
+      # Flyway owns the event_publication table (V9); the app user has no CREATE on the schema, so Modulith's own
+      # CREATE TABLE IF NOT EXISTS would fail startup on a fresh database
+      jdbc:
+        schema-initialization:
+          enabled: false
   mail:
     # JavaMail waits forever by default; a hung mail server must fail the listener so it is retried later
     properties:
@@ -97,6 +104,12 @@ wallet:
       duration: 15m
     password:
       hash-strength: 12
+      # Have I Been Pwned's range API: only 5 characters of the password's SHA-1 are sent. A slow or failed lookup
+      # lets the password through, so the timeout is all it can add to a sign-up
+      breach-check:
+        enabled: ${PASSWORD_BREACH_CHECK:true}
+        base-url: https://api.pwnedpasswords.com/
+        timeout: 2s
     # Administrator created at startup when both are set; never promotes an existing user
     admin:
       email: ${ADMIN_EMAIL:}
@@ -107,6 +120,25 @@ wallet:
     # Email links work once; a reset link is short-lived because whoever holds it can take over the account
     email-verification-ttl: 24h
     password-reset-ttl: 30m
+    # Authenticator apps (TOTP); each profile sets the key that encrypts their secrets
+    two-factor:
+      issuer: Digital Wallet
+    # Cloudflare Turnstile on sign-up and password reset requests, which email any address they are given. Off unless
+    # CAPTCHA_ENABLED=true (prod turns it on); the web app needs the matching site key in VITE_TURNSTILE_SITE_KEY
+    captcha:
+      enabled: ${CAPTCHA_ENABLED:false}
+      secret-key: ${TURNSTILE_SECRET_KEY:}
+      verify-url: https://challenges.cloudflare.com/turnstile/v0/siteverify
+      timeout: 3s
+    # /api/v1/admin/** answers 403 ADMIN_TWO_FACTOR_REQUIRED until the administrator turns two-factor on and signs in
+    # again with it
+    admin-requires-two-factor: true
+    # Browser sessions (X-Session-Mode: cookie) keep the refresh token in this HttpOnly cookie. Strict SameSite means
+    # the web app and the API must be on the same site, e.g. app.example.com and api.example.com
+    refresh-token-cookie:
+      name: wallet_refresh
+      secure: true
+      same-site: Strict
     one-time-token-cleanup:
       cron: "0 20 3 * * *"
   accounts:
@@ -118,11 +150,19 @@ wallet:
     usage-cleanup:
       cron: "0 30 3 * * *"
       retention: 7d
+    # A new bank account receives no withdrawals for this long, so someone who took over an account cannot add
+    # their own and empty the wallet before the owner sees the notification
+    bank-account-cooling-off: 24h
   transfers:
     # Largest single deposit; Stripe itself refuses more than 999,999.99
     max-deposit:
       MXN: 100000.00
       USD: 5000.00
+    # Transfers under this to someone paid before skip the step-up check (2FA code, or the password without it);
+    # larger ones, first ones to a recipient and every withdrawal ask for it, so a stolen session can't empty a wallet
+    step-up-exempt-below:
+      MXN: 1000.00
+      USD: 50.00
     # Retries with the same key after this are treated as new requests
     idempotency-key-cleanup:
       cron: "0 45 3 * * *"
@@ -130,6 +170,8 @@ wallet:
     # Pending withdrawals are sent again (provider down) or checked (payout on its way) by a job; the newest are
     # left alone for a while because the request that made them is still sending them
     payouts:
+      # Only simulated exists so far; it pays nothing for real, so production must ask for it explicitly
+      provider: ${PAYOUT_PROVIDER:simulated}
       check-interval: 1m
       retry-after: 1m
   ledger:
@@ -181,6 +223,10 @@ wallet:
       interval: 30s
       initial-backoff: 1m
       max-backoff: 1h
+  # Web apps on other origins allowed to call the API from a browser, comma-separated; none by default
+  web:
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   # Background jobs; every instance schedules them, see each job for how duplicates are avoided
   scheduling:
     enabled: true
@@ -194,6 +240,13 @@ wallet:
         paths: [/api/v1/auth/password-reset]
         key: ip
         capacity: 5
+        period: 15m
+      # Every sign-up emails the address, a new account or not
+      - name: registration
+        methods: [POST]
+        paths: [/api/v1/auth/register]
+        key: ip
+        capacity: 15
         period: 15m
       - name: email-verification
         methods: [POST]
@@ -213,6 +266,13 @@ wallet:
         methods: [POST]
         paths: [/api/v1/auth/**]
         key: ip
+        capacity: 20
+        period: 1m
+      # Each answer says whether an email has a wallet, so looking people up is kept well below browsing
+      - name: recipient-lookup
+        methods: [GET]
+        paths: [/api/v1/transfers/recipient]
+        key: user
         capacity: 20
         period: 1m
       - name: money-movement
