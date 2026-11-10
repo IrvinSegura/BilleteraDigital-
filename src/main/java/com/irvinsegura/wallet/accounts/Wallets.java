@@ -3,6 +3,7 @@ package com.irvinsegura.wallet.accounts;
 import com.irvinsegura.wallet.shared.domain.Money;
 import java.time.Instant;
 import java.util.Currency;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -64,4 +65,17 @@ public interface Wallets {
      * @throws DailyLimitExceededException if the amount would exceed the source's limit today
      */
     void reserveTransfer(UUID sourceWalletId, UUID ownerId, UUID destinationWalletId, Money amount);
+
+    /**
+     * Locks a wallet for an administrator's adjustment until the caller's transaction ends, whatever its status: a
+     * frozen wallet can still be corrected, e.g. to take back money credited by mistake. No daily limit applies.
+     *
+     * @throws WalletNotFoundException if the wallet does not exist
+     */
+    WalletInfo lockForAdjustment(UUID walletId);
+
+    /**
+     * The owner's wallets, frozen ones included.
+     */
+    List<WalletInfo> walletsOf(UUID ownerId);
 }
