@@ -9,10 +9,13 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Plain JDBC, like the audit log: "insert unless it exists" needs ON CONFLICT, and the bulk updates and deletes are
@@ -21,7 +24,10 @@ import org.springframework.stereotype.Repository;
 @Repository
 class NotificationJdbcAdapter implements NotificationRepository {
 
-    private static final String COLUMNS = "id, user_id, type, title, body, reference_id, created_at, read_at";
+    private static final String COLUMNS = "id, user_id, type, title, body, reference_id, created_at, read_at, params";
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final TypeReference<Map<String, String>> PARAMS = new TypeReference<>() {
+    };
 
     private final JdbcClient jdbcClient;
 
@@ -32,8 +38,9 @@ class NotificationJdbcAdapter implements NotificationRepository {
     @Override
     public boolean add(Notification notification) {
         return jdbcClient.sql("""
-                        INSERT INTO notifications (id, user_id, type, title, body, reference_id, created_at, read_at)
-                        VALUES (:id, :userId, :type, :title, :body, :referenceId, :createdAt, :readAt)
+                        INSERT INTO notifications (id, user_id, type, title, body, reference_id, created_at, read_at, params)
+                        VALUES (:id, :userId, :type, :title, :body, :referenceId, :createdAt, :readAt,
+                                CAST(:params AS jsonb))
                         ON CONFLICT (id) DO NOTHING""")
                 .param("id", notification.id())
                 .param("userId", notification.userId())
@@ -43,6 +50,7 @@ class NotificationJdbcAdapter implements NotificationRepository {
                 .param("referenceId", notification.referenceId())
                 .param("createdAt", timestamp(notification.createdAt()))
                 .param("readAt", timestamp(notification.readAt()))
+                .param("params", JSON.writeValueAsString(notification.params()))
                 .update() == 1;
     }
 
@@ -100,6 +108,21 @@ class NotificationJdbcAdapter implements NotificationRepository {
     }
 
     @Override
+    public boolean delete(UUID id, UUID userId) {
+        return jdbcClient.sql("DELETE FROM notifications WHERE id = :id AND user_id = :userId")
+                .param("id", id)
+                .param("userId", userId)
+                .update() == 1;
+    }
+
+    @Override
+    public int deleteRead(UUID userId) {
+        return jdbcClient.sql("DELETE FROM notifications WHERE user_id = :userId AND read_at IS NOT NULL")
+                .param("userId", userId)
+                .update();
+    }
+
+    @Override
     public int deleteCreatedBefore(Instant cutoff) {
         return jdbcClient.sql("DELETE FROM notifications WHERE created_at < :cutoff")
                 .param("cutoff", timestamp(cutoff))
@@ -115,6 +138,6 @@ class NotificationJdbcAdapter implements NotificationRepository {
         return new Notification(rs.getObject("id", UUID.class), rs.getObject("user_id", UUID.class),
                 NotificationType.valueOf(rs.getString("type")), rs.getString("title"), rs.getString("body"),
                 rs.getObject("reference_id", UUID.class), rs.getObject("created_at", OffsetDateTime.class).toInstant(),
-                readAt == null ? null : readAt.toInstant());
+                readAt == null ? null : readAt.toInstant(), JSON.readValue(rs.getString("params"), PARAMS));
     }
 }

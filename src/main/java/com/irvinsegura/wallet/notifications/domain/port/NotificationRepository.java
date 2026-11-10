@@ -37,6 +37,16 @@ public interface NotificationRepository {
     int markAllRead(UUID userId, Instant readAt);
 
     /**
+     * @return false if the user has no notification with that id
+     */
+    boolean delete(UUID id, UUID userId);
+
+    /**
+     * @return how many of the user's read notifications were deleted
+     */
+    int deleteRead(UUID userId);
+
+    /**
      * @return how many notifications were deleted
      */
     int deleteCreatedBefore(Instant cutoff);
