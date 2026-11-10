@@ -33,12 +33,13 @@ interface PostingJpaRepository extends JpaRepository<PostingEntity, UUID> {
               and e.postedAt >= :from and e.postedAt < :to
               and p.side in :sides
               and (:anyType = true or e.type in :types)
-              and (:anyReference = true or lower(e.reference) like :referencePattern)
+              and (:anyReference = true or lower(e.reference) like :referencePattern or e.reference in :references)
             order by p.postingNumber desc""")
     Slice<MovementRow> findMovements(@Param("accountId") UUID accountId, @Param("from") Instant from,
             @Param("to") Instant to, @Param("sides") Collection<Side> sides, @Param("anyType") boolean anyType,
             @Param("types") Collection<String> types, @Param("anyReference") boolean anyReference,
-            @Param("referencePattern") String referencePattern, Pageable pageable);
+            @Param("referencePattern") String referencePattern,
+            @Param("references") Collection<String> references, Pageable pageable);
 
     @Query("""
             select new com.irvinsegura.wallet.ledger.infrastructure.persistence.MovementRow(

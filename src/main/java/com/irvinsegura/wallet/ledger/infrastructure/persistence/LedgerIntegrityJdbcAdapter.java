@@ -86,15 +86,17 @@ class LedgerIntegrityJdbcAdapter implements LedgerIntegrityChecks {
     @Override
     public List<Discrepancy> findTrialBalanceGaps() {
         // Every entry moves the same amount on both sides, so per currency the debit-normal balances (what the
-        // platform holds plus what it spent) must equal the credit-normal ones (what it owes plus its capital)
+        // platform holds plus what it spent) must equal the credit-normal ones (what it owes, its capital and what
+        // it earned)
         return jdbcClient.sql("""
                         SELECT currency,
                                COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('ASSET', 'EXPENSE')), 0) AS debits,
-                               COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('LIABILITY', 'EQUITY')), 0) AS credits
+                               COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('LIABILITY', 'EQUITY', 'REVENUE')), 0)
+                                   AS credits
                         FROM ledger_accounts
                         GROUP BY currency
                         HAVING COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('ASSET', 'EXPENSE')), 0)
-                               <> COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('LIABILITY', 'EQUITY')), 0)
+                               <> COALESCE(SUM(balance_minor) FILTER (WHERE type IN ('LIABILITY', 'EQUITY', 'REVENUE')), 0)
                         ORDER BY currency""")
                 .query((rs, rowNum) -> new Discrepancy(Discrepancy.Kind.TRIAL_BALANCE, null,
                         rs.getString("currency"), rs.getLong("debits"), rs.getLong("credits")))

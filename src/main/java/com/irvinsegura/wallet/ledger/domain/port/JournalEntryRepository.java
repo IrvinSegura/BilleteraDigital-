@@ -54,9 +54,11 @@ public interface JournalEntryRepository {
 
     /**
      * Criteria of {@link #findMovements(UUID, MovementQuery, int, int)}; {@code null} (or empty {@code types})
-     * matches anything.
+     * matches anything. A reference may match either {@code referencePrefix} or {@code references}, and only an
+     * absent pair lets any through: empty {@code references} alone matches nothing.
      */
-    record MovementQuery(Instant from, Instant to, Set<String> types, Side side, String referencePrefix) {
+    record MovementQuery(Instant from, Instant to, Set<String> types, Side side, String referencePrefix,
+            Set<String> references) {
 
         public MovementQuery {
             types = types == null ? Set.of() : Set.copyOf(types);
