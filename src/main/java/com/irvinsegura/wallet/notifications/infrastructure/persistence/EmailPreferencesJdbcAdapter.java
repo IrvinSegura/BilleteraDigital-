@@ -22,23 +22,26 @@ class EmailPreferencesJdbcAdapter implements EmailPreferencesRepository {
     @Override
     public Optional<EmailPreferences> find(UUID userId) {
         return jdbcClient.sql("""
-                        SELECT email_money_in, email_money_out FROM notification_preferences WHERE user_id = :userId""")
+                        SELECT email_money_in, email_money_out, email_sign_ins FROM notification_preferences WHERE user_id = :userId""")
                 .param("userId", userId)
                 .query((rs, row) -> new EmailPreferences(rs.getBoolean("email_money_in"),
-                        rs.getBoolean("email_money_out")))
+                        rs.getBoolean("email_money_out"), rs.getBoolean("email_sign_ins")))
                 .optional();
     }
 
     @Override
     public void save(UUID userId, EmailPreferences preferences, Instant now) {
         jdbcClient.sql("""
-                        INSERT INTO notification_preferences (user_id, email_money_in, email_money_out, updated_at)
-                        VALUES (:userId, :moneyIn, :moneyOut, :now)
+                        INSERT INTO notification_preferences (user_id, email_money_in, email_money_out,
+                            email_sign_ins, updated_at)
+                        VALUES (:userId, :moneyIn, :moneyOut, :signIns, :now)
                         ON CONFLICT (user_id) DO UPDATE SET email_money_in = EXCLUDED.email_money_in,
-                            email_money_out = EXCLUDED.email_money_out, updated_at = EXCLUDED.updated_at""")
+                            email_money_out = EXCLUDED.email_money_out, email_sign_ins = EXCLUDED.email_sign_ins,
+                            updated_at = EXCLUDED.updated_at""")
                 .param("userId", userId)
                 .param("moneyIn", preferences.moneyIn())
                 .param("moneyOut", preferences.moneyOut())
+                .param("signIns", preferences.signIns())
                 .param("now", OffsetDateTime.ofInstant(now, ZoneOffset.UTC))
                 .update();
     }
