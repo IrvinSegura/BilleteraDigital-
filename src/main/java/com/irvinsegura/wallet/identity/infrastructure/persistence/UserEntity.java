@@ -5,6 +5,7 @@ import com.irvinsegura.wallet.identity.domain.model.Role;
 import com.irvinsegura.wallet.identity.domain.model.User;
 import com.irvinsegura.wallet.identity.domain.model.UserId;
 import com.irvinsegura.wallet.identity.domain.model.UserStatus;
+import com.irvinsegura.wallet.shared.domain.Language;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -28,11 +29,17 @@ class UserEntity {
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword;
+
     @Column(name = "full_name", nullable = false, length = 100)
     private String fullName;
 
     @Column(length = 16)
     private String phone;
+
+    @Column(nullable = false, length = 2)
+    private String language;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -65,8 +72,10 @@ class UserEntity {
         entity.id = user.id().value();
         entity.email = user.email().value();
         entity.passwordHash = user.passwordHash();
+        entity.mustChangePassword = user.mustChangePassword();
         entity.fullName = user.fullName();
         entity.phone = user.phone();
+        entity.language = user.language().tag();
         entity.role = user.role();
         entity.status = user.status();
         entity.emailVerifiedAt = user.emailVerifiedAt();
@@ -78,7 +87,8 @@ class UserEntity {
     }
 
     User toDomain() {
-        return User.restore(new UserId(id), new Email(email), passwordHash, fullName, phone, role, status,
-                emailVerifiedAt, failedLoginAttempts, lockedUntil, createdAt, version);
+        return User.restore(new UserId(id), new Email(email), passwordHash, fullName, phone,
+                Language.ofTag(language).orElse(Language.DEFAULT), role, status, emailVerifiedAt, failedLoginAttempts, lockedUntil, createdAt, version,
+                mustChangePassword);
     }
 }

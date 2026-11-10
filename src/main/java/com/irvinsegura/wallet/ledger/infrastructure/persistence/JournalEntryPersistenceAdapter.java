@@ -57,11 +57,13 @@ class JournalEntryPersistenceAdapter implements JournalEntryRepository {
     public MovementSlice findMovements(UUID accountId, MovementQuery query, int page, int size) {
         Set<Side> sides = query.side() == null ? EnumSet.allOf(Side.class) : EnumSet.of(query.side());
         boolean anyType = query.types().isEmpty();
-        boolean anyReference = query.referencePrefix() == null;
+        boolean anyReference = query.referencePrefix() == null && query.references() == null;
+        boolean noReferences = query.references() == null || query.references().isEmpty();
         Slice<MovementRow> slice = postingJpaRepository.findMovements(accountId,
                 query.from() == null ? EARLIEST : query.from(), query.to() == null ? LATEST : query.to(), sides,
                 anyType, anyType ? Set.of("") : query.types(), anyReference,
-                anyReference ? "" : query.referencePrefix().toLowerCase(Locale.ROOT) + "%",
+                query.referencePrefix() == null ? "" : query.referencePrefix().toLowerCase(Locale.ROOT) + "%",
+                noReferences ? Set.of("") : query.references(),
                 PageRequest.of(page, size));
         return new MovementSlice(slice.getContent().stream().map(MovementRow::toDomain).toList(), slice.hasNext());
     }

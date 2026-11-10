@@ -59,6 +59,24 @@ public class NotificationService {
     }
 
     /**
+     * @throws NotificationNotFoundException if the user has no notification with that id
+     */
+    @Transactional
+    public void delete(UUID notificationId, UUID userId) {
+        if (!notificationRepository.delete(notificationId, userId)) {
+            throw new NotificationNotFoundException();
+        }
+    }
+
+    /**
+     * Clears the inbox of what the user already read; unread ones stay.
+     */
+    @Transactional
+    public int deleteRead(UUID userId) {
+        return notificationRepository.deleteRead(userId);
+    }
+
+    /**
      * Stores a notification and requests its email in the caller's transaction (an event listener's). A redelivered
      * event finds the notification already stored and sends no second email.
      */

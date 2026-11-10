@@ -19,6 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -89,6 +90,20 @@ class NotificationController {
     }
 
     /**
+     * Deletes every notification the user already read.
+     */
+    @DeleteMapping("/read")
+    DeletedResponse deleteRead(@AuthenticationPrincipal Jwt jwt) {
+        return new DeletedResponse(notificationService.deleteRead(userId(jwt)));
+    }
+
+    @DeleteMapping("/{notificationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void delete(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID notificationId) {
+        notificationService.delete(notificationId, userId(jwt));
+    }
+
+    /**
      * Which notifications also arrive by email. Security notices and failed operations always do.
      */
     @GetMapping("/preferences")
@@ -99,8 +114,12 @@ class NotificationController {
     @PutMapping("/preferences")
     PreferencesResponse updatePreferences(@AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody PreferencesRequest request) {
-        return PreferencesResponse.from(preferencesService.update(userId(jwt),
-                new EmailPreferences(request.emailMoneyIn(), request.emailMoneyOut())));
+        UUID userId = userId(jwt);
+        // Absent from apps older than this setting: they keep what the user chose before
+        boolean signIns = request.emailSignIns() != null ? request.emailSignIns()
+                : preferencesService.get(userId).signIns();
+        return PreferencesResponse.from(preferencesService.update(userId,
+                new EmailPreferences(request.emailMoneyIn(), request.emailMoneyOut(), signIns)));
     }
 
     private static UUID userId(Jwt jwt) {
@@ -110,14 +129,15 @@ class NotificationController {
     /**
      * @param emailMoneyIn  email for deposits and transfers received
      * @param emailMoneyOut email for transfers sent and withdrawals
+     * @param emailSignIns  email for each sign-in; optional, absent keeps the current choice
      */
-    record PreferencesRequest(@NotNull Boolean emailMoneyIn, @NotNull Boolean emailMoneyOut) {
+    record PreferencesRequest(@NotNull Boolean emailMoneyIn, @NotNull Boolean emailMoneyOut, Boolean emailSignIns) {
     }
 
-    record PreferencesResponse(boolean emailMoneyIn, boolean emailMoneyOut) {
+    record PreferencesResponse(boolean emailMoneyIn, boolean emailMoneyOut, boolean emailSignIns) {
 
         static PreferencesResponse from(EmailPreferences preferences) {
-            return new PreferencesResponse(preferences.moneyIn(), preferences.moneyOut());
+            return new PreferencesResponse(preferences.moneyIn(), preferences.moneyOut(), preferences.signIns());
         }
     }
 
@@ -132,6 +152,9 @@ class NotificationController {
     }
 
     record NotificationPageResponse(List<NotificationResponse> items, int page, int size, boolean hasNext) {
+    }
+
+    record DeletedResponse(int deleted) {
     }
 
     record UnreadCountResponse(long count) {

@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.identity.application;
 
 import com.irvinsegura.wallet.identity.AccountDisabledException;
+import com.irvinsegura.wallet.identity.domain.model.AccountClosedException;
 import com.irvinsegura.wallet.identity.EmailVerificationRequested;
 import com.irvinsegura.wallet.identity.TwoFactorRequiredException;
 import com.irvinsegura.wallet.identity.UserSignedIn;
@@ -15,6 +16,7 @@ import com.irvinsegura.wallet.identity.domain.model.User;
 import com.irvinsegura.wallet.identity.domain.port.PasswordHasher;
 import com.irvinsegura.wallet.identity.domain.port.RefreshTokenRepository;
 import com.irvinsegura.wallet.identity.domain.port.UserRepository;
+import com.irvinsegura.wallet.shared.domain.Language;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
@@ -68,7 +70,8 @@ public class AuthenticationService {
      */
     // The failed-attempt counter, and the request for a new link, must be stored even though the login fails
     @Transactional(noRollbackFor = {InvalidCredentialsException.class, EmailVerificationRequiredException.class})
-    public AuthTokens login(String email, String password, String twoFactorCode, boolean resendVerification) {
+    public AuthTokens login(String email, String password, String twoFactorCode, boolean resendVerification,
+            Language language) {
         Instant now = clock.instant();
         Optional<User> found = findForLogin(email);
         if (found.isEmpty()) {
@@ -84,6 +87,9 @@ public class AuthenticationService {
             throw new InvalidCredentialsException();
         }
         // Only after the password matched, so the status of an account is not revealed to someone guessing
+        if (user.isClosed()) {
+            throw new AccountClosedException();
+        }
         if (!user.isActive()) {
             throw new AccountDisabledException();
         }
@@ -91,7 +97,7 @@ public class AuthenticationService {
         // one cancels the earlier links, which the user may be about to follow
         if (!user.isEmailVerified()) {
             if (resendVerification) {
-                events.publishEvent(new EmailVerificationRequested(user.id().value(), now));
+                events.publishEvent(new EmailVerificationRequested(user.id().value(), language, now));
             }
             throw new EmailVerificationRequiredException();
         }

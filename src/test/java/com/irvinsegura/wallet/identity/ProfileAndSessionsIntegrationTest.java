@@ -1,10 +1,13 @@
 package com.irvinsegura.wallet.identity;
 
 import static com.irvinsegura.wallet.support.ApiClient.read;
+import static com.irvinsegura.wallet.support.Eventually.assertEventually;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -24,6 +27,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -45,6 +49,36 @@ class ProfileAndSessionsIntegrationTest {
     @BeforeEach
     void setUp() {
         api = new ApiClient(mockMvc, mailpit);
+    }
+
+    @Test
+    void emailsAreWrittenInTheLanguageOfTheApp() throws Exception {
+        String email = "user-" + UUID.randomUUID() + "@example.com";
+        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.ACCEPT_LANGUAGE, "es-MX,es;q=0.9,en;q=0.8")
+                        .content("""
+                                {"email": "%s", "password": "%s", "fullName": "Ana López"}"""
+                                .formatted(email, ApiClient.PASSWORD)))
+                .andExpect(status().isAccepted());
+
+        api.confirmEmail(api.awaitLinkToken(email, "Confirma tu correo electrónico", 1))
+                .andExpect(status().isNoContent());
+        assertEventually(() -> assertThat(api.mailbox().subjectsFor(email))
+                .contains("Te damos la bienvenida a Billetera Digital"));
+        TestUser user = api.login(email, ApiClient.PASSWORD);
+        api.get(user, ME).andExpect(jsonPath("$.language").value("es"));
+
+        // Switching the app's language changes the next emails...
+        changeLanguage(user, "en").andExpect(status().isOk()).andExpect(jsonPath("$.language").value("en"));
+        requestReset(email, null).andExpect(status().isAccepted());
+        api.awaitLinkToken(email, ApiClient.RESET_PASSWORD_SUBJECT, 1);
+
+        // ...and an app showing another language before signing in gets that one, without changing the account's
+        requestReset(email, "es").andExpect(status().isAccepted());
+        api.awaitLinkToken(email, "Restablece tu contraseña", 1);
+        api.get(user, ME).andExpect(jsonPath("$.language").value("en"));
+
+        changeLanguage(user, "fr").andExpect(status().isBadRequest());
     }
 
     @Test
@@ -136,6 +170,19 @@ class ProfileAndSessionsIntegrationTest {
         mockMvc.perform(delete(ME + "/sessions/" + ownerSession).header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
                 .andExpect(status().isNotFound());
         refresh(owner.refreshToken()).andExpect(status().isOk());
+    }
+
+    private ResultActions changeLanguage(TestUser user, String language) throws Exception {
+        return mockMvc.perform(put(ME + "/language").header(HttpHeaders.AUTHORIZATION, bearer(user))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"language": "%s"}""".formatted(language)));
+    }
+
+    private ResultActions requestReset(String email, String language) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/v1/auth/password-reset")
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"email": "%s"}""".formatted(email));
+        return mockMvc.perform(language == null ? request : request.header(HttpHeaders.ACCEPT_LANGUAGE, language));
     }
 
     private ResultActions updateProfile(TestUser user, String json) throws Exception {

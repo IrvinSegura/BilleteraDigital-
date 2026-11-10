@@ -3,8 +3,10 @@ package com.irvinsegura.wallet.notifications.domain.model;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.irvinsegura.wallet.shared.domain.Language;
 import com.irvinsegura.wallet.shared.domain.Money;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -53,15 +55,15 @@ class NotificationMessagesTest {
 
     @Test
     void accountEmailsCarryTheTokenInTheLinkFragment() {
-        AccountEmails emails = new AccountEmails("https://wallet.example.com/");
+        AccountEmails emails = new AccountEmails("https://wallet.example.com/", ZoneId.of("America/Mexico_City"));
 
-        EmailMessage email = emails.resetPassword("ana@example.com", "Ana López", "abc_-123",
+        EmailMessage email = emails.resetPassword("ana@example.com", "Ana López", Language.EN, "abc_-123",
                 Instant.parse("2026-10-30T12:30:00Z"));
 
         assertThat(email.subject()).isEqualTo("Reset your password");
         assertThat(email.body()).startsWith("Hi Ana López,")
                 .contains("https://wallet.example.com/reset-password#token=abc_-123")
-                .contains("expires at 2026-10-30 12:30 UTC");
+                .contains("October 30, 2026, 6:30 AM");
     }
 
     @Test
@@ -87,11 +89,12 @@ class NotificationMessagesTest {
     void emailsGreetTheUserByName() {
         Notification welcome = NotificationMessages.welcome(UUID.randomUUID(), AT);
 
-        EmailMessage email = EmailMessage.of(welcome, "ana@example.com", "Ana López");
+        EmailMessage email = new NotificationEmails("https://wallet.example.com", ZoneId.of("America/Mexico_City"))
+                .of(welcome, "ana@example.com", "Ana López", Language.EN);
 
         assertThat(email.to()).isEqualTo("ana@example.com");
         assertThat(email.subject()).isEqualTo("Welcome to Digital Wallet");
-        assertThat(email.body()).startsWith("Hi Ana López,").contains(welcome.body());
+        assertThat(email.body()).startsWith("Hi Ana López,").contains("Open a wallet in MXN or USD");
     }
 
     @Test

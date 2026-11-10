@@ -4,6 +4,7 @@ import static com.irvinsegura.wallet.support.ApiClient.newKey;
 import static com.irvinsegura.wallet.support.ApiClient.read;
 import static com.irvinsegura.wallet.support.Eventually.assertEventually;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -21,6 +22,7 @@ import com.jayway.jsonpath.JsonPath;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +47,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class NotificationIntegrationTest {
 
     private static final String NOTIFICATIONS = "/api/v1/notifications";
+    private static final Predicate<String> NOT_SIGN_IN = subject -> !"New sign-in to your account".equals(subject);
 
     @Autowired
     private MockMvc mockMvc;
@@ -90,12 +93,14 @@ class NotificationIntegrationTest {
         assertThat((String) JsonPath.read(inbox(sender, ""), "$.items[0].body"))
                 .isEqualTo("You sent 30.25 MXN to %s.".formatted(recipient.email()));
 
-        // The welcome and the verification email are sent at the same time, so their order varies
-        assertEventually(() -> assertThat(mailbox.subjectsFor(recipient.email())).hasSize(3)
+        // The welcome and the verification email are sent at the same time, so their order varies. The sign-in
+        // emails are left out: how many there are depends on how often the test signs in
+        assertEventually(() -> assertThat(mailbox.subjectsFor(recipient.email())).filteredOn(NOT_SIGN_IN)
+                .hasSize(3)
                 .startsWith("Money received")
                 .contains("Welcome to Digital Wallet", "Confirm your email address"));
-        assertThat(mailbox.snippetsFor(recipient.email()).getFirst()).contains("Ana López sent you 30.25 MXN.");
-        assertEventually(() -> assertThat(mailbox.subjectsFor(sender.email()))
+        assertThat(mailbox.snippetsFor(recipient.email()).getFirst()).contains("Ana López sent you money");
+        assertEventually(() -> assertThat(mailbox.subjectsFor(sender.email())).filteredOn(NOT_SIGN_IN)
                 .containsExactlyInAnyOrder("Transfer sent", "Deposit received", "Welcome to Digital Wallet",
                         "Confirm your email address"));
     }
@@ -123,6 +128,32 @@ class NotificationIntegrationTest {
         mockMvc.perform(post(NOTIFICATIONS + "/read-all").header("Authorization", user.bearer()))
                 .andExpect(status().isNoContent());
         api.get(user, NOTIFICATIONS + "/unread-count").andExpect(jsonPath("$.count").value(0));
+    }
+
+    @Test
+    void usersDeleteOneNotificationOrEveryReadOne() throws Exception {
+        TestUser user = api.newUser();
+        TestUser stranger = api.newUser();
+        String walletId = api.openWalletId(user, "USD");
+        api.deposit(user, walletId, "10.00").andExpect(status().isCreated());
+        api.deposit(user, walletId, "5.00").andExpect(status().isCreated());
+        assertEventually(() -> assertThat(typesFor(user))
+                .containsExactly("DEPOSIT_RECEIVED", "DEPOSIT_RECEIVED", "WELCOME"));
+        List<String> ids = JsonPath.read(inbox(user, ""), "$.items[*].id");
+
+        deleteNotification(stranger, ids.get(0)).andExpect(status().isNotFound());
+        deleteNotification(user, ids.get(0)).andExpect(status().isNoContent());
+        deleteNotification(user, ids.get(0))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOTIFICATION_NOT_FOUND"));
+        assertThat((List<String>) JsonPath.read(inbox(user, ""), "$.items[*].id")).containsExactly(ids.get(1), ids.get(2));
+
+        // Only what was read goes
+        markRead(user, ids.get(1)).andExpect(status().isNoContent());
+        mockMvc.perform(delete(NOTIFICATIONS + "/read").header("Authorization", user.bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(1));
+        assertThat((List<String>) JsonPath.read(inbox(user, ""), "$.items[*].type")).containsExactly("WELCOME");
     }
 
     @Test
@@ -199,6 +230,10 @@ class NotificationIntegrationTest {
     private long pendingPublicationsOf(UUID referenceId) {
         return jdbcTemplate.queryForObject("SELECT count(*) FROM event_publication WHERE serialized_event LIKE ?",
                 Long.class, "%" + referenceId + "%");
+    }
+
+    private ResultActions deleteNotification(TestUser user, String notificationId) throws Exception {
+        return mockMvc.perform(delete(NOTIFICATIONS + "/" + notificationId).header("Authorization", user.bearer()));
     }
 
     private ResultActions markRead(TestUser user, String notificationId) throws Exception {

@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.identity.web;
 
+import com.irvinsegura.wallet.identity.application.AccountLifecycleService;
 import com.irvinsegura.wallet.identity.application.EmailVerificationService;
 import com.irvinsegura.wallet.identity.application.PasswordService;
 import com.irvinsegura.wallet.identity.application.SessionService;
@@ -8,16 +9,21 @@ import com.irvinsegura.wallet.identity.application.TwoFactorService;
 import com.irvinsegura.wallet.identity.application.TwoFactorSetup;
 import com.irvinsegura.wallet.identity.application.UserProfileService;
 import com.irvinsegura.wallet.identity.domain.model.AccessToken;
+import com.irvinsegura.wallet.shared.domain.Language;
 import com.irvinsegura.wallet.shared.web.PlainText;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,7 +33,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -42,16 +50,18 @@ class UserController {
     private final TwoFactorService twoFactorService;
     private final SessionService sessionService;
     private final RefreshTokenCookies refreshTokenCookies;
+    private final AccountLifecycleService accountLifecycleService;
 
     UserController(UserProfileService userProfileService, EmailVerificationService emailVerificationService,
             PasswordService passwordService, TwoFactorService twoFactorService, SessionService sessionService,
-            RefreshTokenCookies refreshTokenCookies) {
+            RefreshTokenCookies refreshTokenCookies, AccountLifecycleService accountLifecycleService) {
         this.userProfileService = userProfileService;
         this.emailVerificationService = emailVerificationService;
         this.passwordService = passwordService;
         this.twoFactorService = twoFactorService;
         this.sessionService = sessionService;
         this.refreshTokenCookies = refreshTokenCookies;
+        this.accountLifecycleService = accountLifecycleService;
     }
 
     // The user id always comes from the verified token, never from the request, so users only see themselves
@@ -66,6 +76,15 @@ class UserController {
     @PatchMapping(ME_PATH)
     UserResponse updateProfile(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody UpdateProfileRequest request) {
         return UserResponse.from(userProfileService.updateProfile(userId(jwt), request.fullName(), request.phone()));
+    }
+
+    /**
+     * Sets the language of the caller's emails, {@code es} or {@code en}.
+     */
+    @PutMapping(ME_PATH + "/language")
+    UserResponse changeLanguage(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ChangeLanguageRequest request) {
+        return UserResponse.from(userProfileService.changeLanguage(userId(jwt),
+                Language.ofTag(request.language()).orElseThrow()));
     }
 
     /**
@@ -136,6 +155,41 @@ class UserController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Emails a link to the new address; nothing changes until it is followed. Accepted even when the address already
+     * has an account (it then gets nothing), so it cannot be used to find out who is registered.
+     */
+    @PostMapping(ME_PATH + "/email")
+    ResponseEntity<Void> requestEmailChange(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ChangeEmailRequest request,
+            @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false) String acceptLanguage) {
+        accountLifecycleService.requestEmailChange(userId(jwt), request.newEmail(), request.currentPassword(),
+                request.twoFactorCode(), RequestLanguage.of(acceptLanguage));
+        return ResponseEntity.accepted().build();
+    }
+
+    /**
+     * Closes the account for good. Every wallet must be empty and nothing may be on its way.
+     */
+    @PostMapping(ME_PATH + "/close")
+    ResponseEntity<Void> closeAccount(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody CloseAccountRequest request) {
+        accountLifecycleService.close(userId(jwt), request.currentPassword(), request.twoFactorCode());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * A copy of everything kept about the caller, as a JSON file to download.
+     */
+    @GetMapping(ME_PATH + "/export")
+    ResponseEntity<Map<String, Object>> exportData(@AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("billetera-datos.json").build().toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(accountLifecycleService.export(userId(jwt)));
+    }
+
     // How many recovery codes are left, so the client can warn before they run out
     @GetMapping(ME_PATH + "/two-factor")
     TwoFactorStatusResponse twoFactorStatus(@AuthenticationPrincipal Jwt jwt) {
@@ -152,6 +206,26 @@ class UserController {
 
     private static UUID userId(Jwt jwt) {
         return UUID.fromString(jwt.getSubject());
+    }
+
+    record ChangeEmailRequest(@NotBlank @Email @Size(max = 254) String newEmail,
+            @NotBlank @Size(max = 128) String currentPassword, @Size(max = 20) String twoFactorCode) {
+
+        @Override
+        public String toString() {
+            return "ChangeEmailRequest[newEmail=%s]".formatted(newEmail);
+        }
+    }
+
+    record CloseAccountRequest(@NotBlank @Size(max = 128) String currentPassword, @Size(max = 20) String twoFactorCode) {
+
+        @Override
+        public String toString() {
+            return "CloseAccountRequest[***]";
+        }
+    }
+
+    record ChangeLanguageRequest(@NotBlank @Pattern(regexp = "es|en", message = "must be es or en") String language) {
     }
 
     record PasswordConfirmation(@NotBlank @Size(max = 128) String currentPassword) {

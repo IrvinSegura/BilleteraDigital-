@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.identity.domain.model;
 
+import com.irvinsegura.wallet.shared.domain.Language;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -7,7 +8,7 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
- * Registered user, its login state and whether it may move money. Only the password hash is kept; the raw password
+ * Registered user, its login state and whether it may move money. Only the password hash is kept; a raw password
  * never reaches the domain.
  */
 public class User {
@@ -18,26 +19,29 @@ public class User {
     private static final Pattern PHONE = Pattern.compile("\\+[1-9]\\d{7,14}");
 
     private final UserId id;
-    private final Email email;
+    private Email email;
     private String fullName;
     private String phone;
-    private final Role role;
+    private Language language;
+    private Role role;
     private final Instant createdAt;
     private final Long version;
     private String passwordHash;
+    private boolean mustChangePassword;
     private UserStatus status;
     private Instant emailVerifiedAt;
     private int failedLoginAttempts;
     private Instant lockedUntil;
 
-    private User(UserId id, Email email, String passwordHash, String fullName, String phone, Role role,
-            UserStatus status, Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil, Instant createdAt,
+    private User(UserId id, Email email, String passwordHash, String fullName, String phone, Language language,
+            Role role, UserStatus status, Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil, Instant createdAt,
             Long version) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.email = Objects.requireNonNull(email, "email must not be null");
         this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash must not be null");
         this.fullName = Objects.requireNonNull(fullName, "fullName must not be null");
         this.phone = phone;
+        this.language = Objects.requireNonNull(language, "language must not be null");
         this.role = Objects.requireNonNull(role, "role must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
@@ -50,8 +54,23 @@ public class User {
     /**
      * New accounts start with an unverified email: they can receive money but not send or withdraw it.
      */
-    public static User register(Email email, String passwordHash, String fullName, Instant now) {
-        return create(email, passwordHash, fullName, Role.USER, null, now);
+    public static User register(Email email, String passwordHash, String fullName, Language language, Instant now) {
+        return create(email, passwordHash, fullName, language, Role.USER, null, now);
+    }
+
+    /**
+     * A staff account an administrator creates: an administrator or a support agent, never a customer, which only
+     * sign-up creates. It has no password until the email with its account data goes out, see
+     * {@link #giveInitialPassword}. The administrator vouches for the address, so it counts as verified: otherwise the
+     * emailed password could not sign in.
+     *
+     * @param passwordHash what is stored until then, which nothing matches
+     */
+    public static User registerStaff(Email email, String passwordHash, String fullName, Role role, Instant now) {
+        if (role == Role.USER) {
+            throw new IllegalArgumentException("Staff accounts are ADMIN or SUPPORT");
+        }
+        return create(email, passwordHash, fullName, Language.DEFAULT, role, now, now);
     }
 
     /**
@@ -59,12 +78,12 @@ public class User {
      * system chose the address itself, so it counts as verified.
      */
     public static User registerAdmin(Email email, String passwordHash, String fullName, Instant now) {
-        return create(email, passwordHash, fullName, Role.ADMIN, now, now);
+        return create(email, passwordHash, fullName, Language.DEFAULT, Role.ADMIN, now, now);
     }
 
-    private static User create(Email email, String passwordHash, String fullName, Role role, Instant emailVerifiedAt,
-            Instant now) {
-        return new User(UserId.newId(), email, passwordHash, normalizeFullName(fullName), null, role,
+    private static User create(Email email, String passwordHash, String fullName, Language language, Role role,
+            Instant emailVerifiedAt, Instant now) {
+        return new User(UserId.newId(), email, passwordHash, normalizeFullName(fullName), null, language, role,
                 UserStatus.ACTIVE, emailVerifiedAt, 0, null, now, null);
     }
 
@@ -72,10 +91,12 @@ public class User {
      * Rebuilds a user from storage. {@code version} is the optimistic lock value; null means not persisted yet.
      */
     public static User restore(UserId id, Email email, String passwordHash, String fullName, String phone,
-            Role role, UserStatus status, Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil,
-            Instant createdAt, Long version) {
-        return new User(id, email, passwordHash, fullName, phone, role, status, emailVerifiedAt, failedLoginAttempts,
-                lockedUntil, createdAt, version);
+            Language language, Role role, UserStatus status, Instant emailVerifiedAt, int failedLoginAttempts, Instant lockedUntil,
+            Instant createdAt, Long version, boolean mustChangePassword) {
+        User user = new User(id, email, passwordHash, fullName, phone, language, role, status, emailVerifiedAt,
+                failedLoginAttempts, lockedUntil, createdAt, version);
+        user.mustChangePassword = mustChangePassword;
+        return user;
     }
 
     /**
@@ -108,6 +129,17 @@ public class User {
         return List.copyOf(changed);
     }
 
+    /**
+     * Returns whether anything changed.
+     */
+    public boolean changeLanguage(Language newLanguage) {
+        if (language == Objects.requireNonNull(newLanguage, "language must not be null")) {
+            return false;
+        }
+        language = newLanguage;
+        return true;
+    }
+
     private static String normalizeFullName(String fullName) {
         String name = fullName == null ? "" : fullName.strip().replaceAll("\\s+", " ");
         if (name.isEmpty() || name.length() > MAX_FULL_NAME_LENGTH) {
@@ -137,11 +169,21 @@ public class User {
     }
 
     /**
-     * Replaces the password and clears failed logins, so resetting a forgotten password also lifts a lockout.
+     * Replaces the password and clears failed logins, so resetting a forgotten password also lifts a lockout. A
+     * generated password is gone with it: from here on, only its owner knows the password.
      */
     public void changePassword(String newPasswordHash) {
         passwordHash = Objects.requireNonNull(newPasswordHash, "newPasswordHash must not be null");
+        mustChangePassword = false;
         clearFailedLogins();
+    }
+
+    /**
+     * Sets a password generated for its owner, who has to replace it: it also travels by email.
+     */
+    public void giveInitialPassword(String passwordHash) {
+        this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash must not be null");
+        mustChangePassword = true;
     }
 
     /**
@@ -155,7 +197,24 @@ public class User {
     }
 
     /**
-     * Returns whether anything changed.
+     * Makes an account a support agent or back into a regular user. Returns whether anything changed.
+     *
+     * @throws RoleChangeNotAllowedException for the administrator, or to make someone one: there is only one, provisioned
+     *                                       from configuration
+     */
+    public boolean changeRole(Role newRole) {
+        if (role == Role.ADMIN || newRole == Role.ADMIN) {
+            throw new RoleChangeNotAllowedException();
+        }
+        if (role == newRole) {
+            return false;
+        }
+        role = newRole;
+        return true;
+    }
+
+    /**
+     * Returns whether anything changed. A closed account stays closed.
      *
      * @throws AdminCannotBeDisabledException for the administrator, who would have no way back in
      */
@@ -163,7 +222,7 @@ public class User {
         if (role == Role.ADMIN) {
             throw new AdminCannotBeDisabledException();
         }
-        if (status == UserStatus.DISABLED) {
+        if (status != UserStatus.ACTIVE) {
             return false;
         }
         status = UserStatus.DISABLED;
@@ -171,14 +230,45 @@ public class User {
     }
 
     /**
-     * Returns whether anything changed.
+     * Returns whether anything changed. Only a disabled account comes back: a closed one was its owner's decision.
      */
     public boolean enable() {
-        if (status == UserStatus.ACTIVE) {
+        if (status != UserStatus.DISABLED) {
             return false;
         }
         status = UserStatus.ACTIVE;
         return true;
+    }
+
+    public boolean isClosed() {
+        return status == UserStatus.CLOSED;
+    }
+
+    /**
+     * The owner's own decision; whatever else must be empty first is checked by the caller.
+     *
+     * @throws AccountCannotBeClosedException for the administrator, and for an account that is not active
+     */
+    public void close() {
+        if (role == Role.ADMIN) {
+            throw new AccountCannotBeClosedException(AccountCannotBeClosedException.ADMIN);
+        }
+        if (status != UserStatus.ACTIVE) {
+            throw new AccountCannotBeClosedException(AccountCannotBeClosedException.NOT_ACTIVE);
+        }
+        status = UserStatus.CLOSED;
+    }
+
+    /**
+     * Replaces the address once the owner followed the link sent to it, so the new one counts as verified.
+     *
+     * @return the address it had
+     */
+    public Email changeEmail(Email newEmail, Instant now) {
+        Email previous = email;
+        email = Objects.requireNonNull(newEmail, "newEmail must not be null");
+        emailVerifiedAt = Objects.requireNonNull(now, "now must not be null");
+        return previous;
     }
 
     public boolean isLockedAt(Instant now) {
@@ -221,12 +311,23 @@ public class User {
         return email;
     }
 
+    public boolean mustChangePassword() {
+        return mustChangePassword;
+    }
+
     public String passwordHash() {
         return passwordHash;
     }
 
+    /**
+     * Null unless this is a staff account still on the password generated for it.
+     */
     public String fullName() {
         return fullName;
+    }
+
+    public Language language() {
+        return language;
     }
 
     public String phone() {

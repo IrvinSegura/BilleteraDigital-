@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.notifications.infrastructure.config;
 
 import com.irvinsegura.wallet.notifications.domain.model.AccountEmails;
+import com.irvinsegura.wallet.notifications.domain.model.NotificationEmails;
 import com.irvinsegura.wallet.notifications.domain.port.EmailSender;
 import com.irvinsegura.wallet.notifications.infrastructure.email.LoggingEmailSender;
 import com.irvinsegura.wallet.notifications.infrastructure.email.SmtpEmailSender;
@@ -37,6 +38,11 @@ class NotificationsConfiguration {
 
     @Bean
     AccountEmails accountEmails(NotificationsProperties properties) {
-        return new AccountEmails(properties.email().appUrl());
+        return new AccountEmails(properties.email().appUrl(), properties.email().timeZone());
+    }
+
+    @Bean
+    NotificationEmails notificationEmails(NotificationsProperties properties) {
+        return new NotificationEmails(properties.email().appUrl(), properties.email().timeZone());
     }
 }
