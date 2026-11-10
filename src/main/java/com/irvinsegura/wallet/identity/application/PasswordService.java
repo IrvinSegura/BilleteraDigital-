@@ -6,6 +6,7 @@ import com.irvinsegura.wallet.identity.PasswordChanged;
 import com.irvinsegura.wallet.identity.PasswordResetRequested;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
 import com.irvinsegura.wallet.identity.domain.model.BreachedPasswordException;
+import com.irvinsegura.wallet.identity.domain.model.PasswordUnchangedException;
 import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.IncorrectPasswordException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidEmailException;
@@ -19,6 +20,7 @@ import com.irvinsegura.wallet.identity.domain.port.BreachedPasswords;
 import com.irvinsegura.wallet.identity.domain.port.PasswordHasher;
 import com.irvinsegura.wallet.identity.domain.port.RefreshTokenRepository;
 import com.irvinsegura.wallet.identity.domain.port.UserRepository;
+import com.irvinsegura.wallet.shared.domain.Language;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
@@ -68,14 +70,17 @@ public class PasswordService {
 
     /**
      * Emails a reset link if the address belongs to an enabled account. Callers answer the same whatever happens
-     * here, so the response never reveals who is registered.
+     * here, so the response never reveals who is registered. The language only applies to this email: whoever asks
+     * may not be the owner, so it never changes the account's.
+     *
+     * @param language the language of the app asking; null to use the account's
      */
     @Transactional
-    public void requestReset(String email) {
+    public void requestReset(String email, Language language) {
         findByEmail(email)
                 .filter(User::isActive)
                 .ifPresent(user -> events.publishEvent(
-                        new PasswordResetRequested(user.id().value(), clock.instant())));
+                        new PasswordResetRequested(user.id().value(), language, clock.instant())));
     }
 
     /**
@@ -110,6 +115,7 @@ public class PasswordService {
      *
      * @throws IncorrectPasswordException if the current password is wrong; it counts as a failed login
      * @throws BreachedPasswordException  if the new password appears in a known data breach
+     * @throws PasswordUnchangedException if the new password is the current one
      */
     public AuthTokens changePassword(UUID userId, String currentPassword, String newPassword) {
         checkBeforeTransaction(newPassword);
@@ -134,6 +140,9 @@ public class PasswordService {
         }
         if (!passwordVerifier.verify(user, currentPassword, now)) {
             return null;
+        }
+        if (passwordHasher.matches(newPassword, user.passwordHash())) {
+            throw new PasswordUnchangedException();
         }
         replacePassword(user, newPassword, CHANGE, now);
         return sessionTokens.startSession(user, now);
