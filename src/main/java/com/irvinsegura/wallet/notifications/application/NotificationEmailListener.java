@@ -2,9 +2,9 @@ package com.irvinsegura.wallet.notifications.application;
 
 import com.irvinsegura.wallet.identity.UserContact;
 import com.irvinsegura.wallet.identity.UserDirectory;
-import com.irvinsegura.wallet.notifications.domain.model.EmailMessage;
 import com.irvinsegura.wallet.notifications.domain.model.EmailPreferences;
 import com.irvinsegura.wallet.notifications.domain.model.Notification;
+import com.irvinsegura.wallet.notifications.domain.model.NotificationEmails;
 import com.irvinsegura.wallet.notifications.domain.port.EmailPreferencesRepository;
 import com.irvinsegura.wallet.notifications.domain.port.EmailSender;
 import com.irvinsegura.wallet.notifications.domain.port.NotificationRepository;
@@ -27,13 +27,15 @@ class NotificationEmailListener {
     private final NotificationRepository notificationRepository;
     private final EmailPreferencesRepository preferences;
     private final UserDirectory users;
+    private final NotificationEmails notificationEmails;
     private final EmailSender emailSender;
 
     NotificationEmailListener(NotificationRepository notificationRepository, EmailPreferencesRepository preferences,
-            UserDirectory users, EmailSender emailSender) {
+            UserDirectory users, NotificationEmails notificationEmails, EmailSender emailSender) {
         this.notificationRepository = notificationRepository;
         this.preferences = preferences;
         this.users = users;
+        this.notificationEmails = notificationEmails;
         this.emailSender = emailSender;
     }
 
@@ -51,6 +53,7 @@ class NotificationEmailListener {
                 .allowsEmail(notification.get().type())) {
             return;
         }
-        emailSender.send(EmailMessage.of(notification.get(), contact.get().email(), contact.get().fullName()));
+        emailSender.send(notificationEmails.of(notification.get(), contact.get().email(), contact.get().fullName(),
+                contact.get().language()));
     }
 }

@@ -43,14 +43,26 @@ public final class Mailbox {
         return ids.stream().map(this::linkToken).toList();
     }
 
+    /**
+     * Text of the emails with that subject sent to that address, newest first.
+     */
+    public List<String> textsFor(String email, String subject) {
+        List<String> ids = JsonPath.read(search("to:\"" + email + "\" subject:\"" + subject + "\""),
+                "$.messages[*].ID");
+        return ids.stream().map(this::text).toList();
+    }
+
     private String linkToken(String messageId) {
-        String text = JsonPath.read(client.get().uri("/api/v1/message/{id}", messageId).retrieve().body(String.class),
-                "$.Text");
-        Matcher matcher = LINK_TOKEN.matcher(text);
+        Matcher matcher = LINK_TOKEN.matcher(text(messageId));
         if (!matcher.find()) {
             throw new AssertionError("No link token in email " + messageId);
         }
         return matcher.group(1);
+    }
+
+    private String text(String messageId) {
+        return JsonPath.read(client.get().uri("/api/v1/message/{id}", messageId).retrieve().body(String.class),
+                "$.Text");
     }
 
     private String search(String query) {
