@@ -11,6 +11,7 @@ import com.irvinsegura.wallet.identity.domain.model.User;
 import com.irvinsegura.wallet.identity.domain.port.BreachedPasswords;
 import com.irvinsegura.wallet.identity.domain.port.PasswordHasher;
 import com.irvinsegura.wallet.identity.domain.port.UserRepository;
+import com.irvinsegura.wallet.shared.domain.Language;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
@@ -58,23 +59,24 @@ public class RegistrationService {
         // Hashed even when the address is taken, so both answers take the same time
         String passwordHash = passwordHasher.hash(command.password());
         try {
-            transaction.executeWithoutResult(status -> create(email, passwordHash, command.fullName()));
+            transaction.executeWithoutResult(status -> create(email, passwordHash, command.fullName(),
+                    command.language() == null ? Language.DEFAULT : command.language()));
         } catch (EmailAlreadyRegisteredException e) {
             // A concurrent sign-up with the same address won the unique constraint
             transaction.executeWithoutResult(status -> userRepository.findByEmail(email).ifPresent(this::tellOwner));
         }
     }
 
-    private void create(Email email, String passwordHash, String fullName) {
+    private void create(Email email, String passwordHash, String fullName, Language language) {
         Optional<User> existing = userRepository.findByEmail(email);
         if (existing.isPresent()) {
             tellOwner(existing.get());
             return;
         }
-        User user = User.register(email, passwordHash, fullName, clock.instant());
+        User user = User.register(email, passwordHash, fullName, language, clock.instant());
         userRepository.save(user);
         events.publishEvent(new UserRegistered(user.id().value(), user.role().name(), user.createdAt()));
-        events.publishEvent(new EmailVerificationRequested(user.id().value(), user.createdAt()));
+        events.publishEvent(new EmailVerificationRequested(user.id().value(), null, user.createdAt()));
     }
 
     // A disabled account gets nothing: there is nothing its owner could do about it
@@ -85,6 +87,6 @@ public class RegistrationService {
         }
         events.publishEvent(user.isEmailVerified()
                 ? new ExistingAccountSignUpAttempted(user.id().value(), now)
-                : new EmailVerificationRequested(user.id().value(), now));
+                : new EmailVerificationRequested(user.id().value(), null, now));
     }
 }

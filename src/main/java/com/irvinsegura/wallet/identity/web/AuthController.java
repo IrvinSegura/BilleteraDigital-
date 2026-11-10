@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.identity.web;
 
+import com.irvinsegura.wallet.identity.application.AccountLifecycleService;
 import com.irvinsegura.wallet.identity.application.AuthTokens;
 import com.irvinsegura.wallet.identity.application.AuthenticationService;
 import com.irvinsegura.wallet.identity.application.EmailVerificationService;
@@ -19,6 +20,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,24 +34,29 @@ class AuthController {
     private final PasswordService passwordService;
     private final HumanCheck humanCheck;
     private final RefreshTokenCookies refreshTokenCookies;
+    private final AccountLifecycleService accountLifecycleService;
 
     AuthController(RegistrationService registrationService, AuthenticationService authenticationService,
             EmailVerificationService emailVerificationService, PasswordService passwordService,
-            HumanCheck humanCheck, RefreshTokenCookies refreshTokenCookies) {
+            HumanCheck humanCheck, RefreshTokenCookies refreshTokenCookies,
+            AccountLifecycleService accountLifecycleService) {
         this.registrationService = registrationService;
         this.authenticationService = authenticationService;
         this.emailVerificationService = emailVerificationService;
         this.passwordService = passwordService;
         this.humanCheck = humanCheck;
         this.refreshTokenCookies = refreshTokenCookies;
+        this.accountLifecycleService = accountLifecycleService;
     }
 
     // Accepted whether or not the email was already registered, so sign-up cannot tell anyone who has an account; the
     // account signs in once the emailed link is followed
     @PostMapping("/register")
-    ResponseEntity<Void> register(@Valid @RequestBody RegisterRequest request) {
+    ResponseEntity<Void> register(@Valid @RequestBody RegisterRequest request,
+            @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false) String acceptLanguage) {
         humanCheck.require(request.captchaToken());
-        registrationService.register(new RegisterUserCommand(request.email(), request.password(), request.fullName()));
+        registrationService.register(new RegisterUserCommand(request.email(), request.password(), request.fullName(),
+                RequestLanguage.of(acceptLanguage)));
         return ResponseEntity.accepted().build();
     }
 
@@ -57,9 +64,11 @@ class AuthController {
      * With {@code X-Session-Mode: cookie} the refresh token is set as an {@code HttpOnly} cookie instead of returned.
      */
     @PostMapping("/login")
-    ResponseEntity<TokenResponse> login(HttpServletRequest httpRequest, @Valid @RequestBody LoginRequest request) {
+    ResponseEntity<TokenResponse> login(HttpServletRequest httpRequest, @Valid @RequestBody LoginRequest request,
+            @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false) String acceptLanguage) {
         return refreshTokenCookies.respond(httpRequest, authenticationService.login(request.email(),
-                request.password(), request.twoFactorCode(), Boolean.TRUE.equals(request.resendVerification())));
+                request.password(), request.twoFactorCode(), Boolean.TRUE.equals(request.resendVerification()),
+                RequestLanguage.of(acceptLanguage)));
     }
 
     /**
@@ -93,11 +102,22 @@ class AuthController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Follows the link sent to a new address: the account moves to it and every session ends. No session needed, as
+     * the link may be opened on another device.
+     */
+    @PostMapping("/email-change/confirm")
+    ResponseEntity<Void> confirmEmailChange(@Valid @RequestBody TokenRequest request) {
+        accountLifecycleService.confirmEmailChange(request.token());
+        return ResponseEntity.noContent().build();
+    }
+
     // Same answer whether or not the email is registered, so it cannot be used to find out who has an account
     @PostMapping("/password-reset")
-    ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
+    ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request,
+            @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false) String acceptLanguage) {
         humanCheck.require(request.captchaToken());
-        passwordService.requestReset(request.email());
+        passwordService.requestReset(request.email(), RequestLanguage.of(acceptLanguage));
         return ResponseEntity.accepted().build();
     }
 
