@@ -3,6 +3,7 @@ package com.irvinsegura.wallet.identity.domain.model;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.irvinsegura.wallet.shared.domain.Language;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
@@ -12,7 +13,7 @@ class UserTest {
     private static final Instant NOW = Instant.parse("2026-10-29T12:00:00Z");
     private static final LockoutPolicy POLICY = new LockoutPolicy(3, Duration.ofMinutes(15));
 
-    private final User user = User.register(Email.of("ana@example.com"), "hash", "  Ana López ", NOW);
+    private final User user = User.register(Email.of("ana@example.com"), "hash", "  Ana López ", Language.ES, NOW);
 
     @Test
     void newUsersHaveTheUserRoleAndATrimmedName() {
@@ -24,7 +25,7 @@ class UserTest {
 
     @Test
     void rejectsBlankNames() {
-        assertThatThrownBy(() -> User.register(Email.of("ana@example.com"), "hash", "   ", NOW))
+        assertThatThrownBy(() -> User.register(Email.of("ana@example.com"), "hash", "   ", Language.ES, NOW))
                 .isInstanceOf(InvalidProfileException.class);
     }
 
@@ -85,6 +86,19 @@ class UserTest {
     }
 
     @Test
+    void aGeneratedPasswordMustBeReplacedAndAnotherOneEndsThat() {
+        User user = User.register(new Email("ana@example.com"), "hash", "Ana", Language.DEFAULT, Instant.EPOCH);
+        assertThat(user.mustChangePassword()).isFalse();
+
+        user.giveInitialPassword("generated");
+        assertThat(user.passwordHash()).isEqualTo("generated");
+        assertThat(user.mustChangePassword()).isTrue();
+
+        user.changePassword("own");
+        assertThat(user.mustChangePassword()).isFalse();
+    }
+
+    @Test
     void changingThePasswordLiftsTheLockout() {
         lock(user);
 
@@ -123,6 +137,39 @@ class UserTest {
 
         assertThatThrownBy(admin::disable).isInstanceOf(AdminCannotBeDisabledException.class);
         assertThat(admin.isActive()).isTrue();
+    }
+
+    @Test
+    void aClosedAccountStaysClosedWhateverAnAdministratorDoes() {
+        user.close();
+
+        assertThat(user.isClosed()).isTrue();
+        assertThat(user.isActive()).isFalse();
+        assertThat(user.enable()).isFalse();
+        assertThat(user.disable()).isFalse();
+        assertThat(user.status()).isEqualTo(UserStatus.CLOSED);
+    }
+
+    @Test
+    void onlyAnActiveAccountOtherThanTheAdministratorCloses() {
+        User admin = User.registerAdmin(Email.of("admin@example.com"), "hash", "Administrator", NOW);
+        assertThatThrownBy(admin::close).isInstanceOf(AccountCannotBeClosedException.class)
+                .extracting("reason").isEqualTo(AccountCannotBeClosedException.ADMIN);
+
+        user.disable();
+        assertThatThrownBy(user::close).isInstanceOf(AccountCannotBeClosedException.class)
+                .extracting("reason").isEqualTo(AccountCannotBeClosedException.NOT_ACTIVE);
+    }
+
+    @Test
+    void aNewAddressCountsAsVerifiedAndTheOldOneIsReturned() {
+        Instant later = NOW.plus(Duration.ofDays(1));
+
+        Email previous = user.changeEmail(Email.of("ana@new.example.com"), later);
+
+        assertThat(previous.value()).isEqualTo("ana@example.com");
+        assertThat(user.email().value()).isEqualTo("ana@new.example.com");
+        assertThat(user.emailVerifiedAt()).isEqualTo(later);
     }
 
     private static void lock(User user) {
