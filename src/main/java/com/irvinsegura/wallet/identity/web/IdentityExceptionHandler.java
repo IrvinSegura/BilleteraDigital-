@@ -2,15 +2,24 @@ package com.irvinsegura.wallet.identity.web;
 
 import com.irvinsegura.wallet.identity.AccountDisabledException;
 import com.irvinsegura.wallet.identity.EmailNotVerifiedException;
+import com.irvinsegura.wallet.identity.IdentityNotVerifiedException;
 import com.irvinsegura.wallet.identity.PasswordConfirmationRequiredException;
 import com.irvinsegura.wallet.identity.TwoFactorRequiredException;
 import com.irvinsegura.wallet.identity.domain.model.AccountLockedException;
 import com.irvinsegura.wallet.identity.domain.model.AdminTwoFactorRequiredException;
+import com.irvinsegura.wallet.identity.domain.model.PasswordChangeRequiredException;
+import com.irvinsegura.wallet.identity.domain.model.AccountCannotBeClosedException;
+import com.irvinsegura.wallet.identity.domain.model.AccountClosedException;
 import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyRegisteredException;
 import com.irvinsegura.wallet.identity.domain.model.EmailVerificationRequiredException;
 import com.irvinsegura.wallet.identity.domain.model.EmailAlreadyVerifiedException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidCredentialsException;
+import com.irvinsegura.wallet.identity.domain.model.IdentityVerificationConflictException;
+import com.irvinsegura.wallet.identity.domain.model.IdentityVerificationLimitException;
+import com.irvinsegura.wallet.identity.domain.model.IdentityVerificationNotFoundException;
+import com.irvinsegura.wallet.identity.domain.model.InvalidIdentityDocumentException;
 import com.irvinsegura.wallet.identity.domain.model.InvalidRefreshTokenException;
+import com.irvinsegura.wallet.identity.domain.model.RoleChangeBlockedException;
 import com.irvinsegura.wallet.identity.domain.model.TwoFactorAlreadyEnabledException;
 import com.irvinsegura.wallet.identity.domain.model.TwoFactorNotEnabledException;
 import com.irvinsegura.wallet.identity.domain.model.SessionNotFoundException;
@@ -48,11 +57,55 @@ class IdentityExceptionHandler {
     }
 
     // Authenticated, but this account is not allowed to do it
-    @ExceptionHandler({AccountDisabledException.class, EmailNotVerifiedException.class,
+    @ExceptionHandler({AccountDisabledException.class, AccountClosedException.class, EmailNotVerifiedException.class,
             EmailVerificationRequiredException.class, TwoFactorRequiredException.class, PasswordConfirmationRequiredException.class,
-            AdminTwoFactorRequiredException.class})
+            AdminTwoFactorRequiredException.class, IdentityNotVerifiedException.class,
+            PasswordChangeRequiredException.class})
     ProblemDetail handleAccountNotAllowed(DomainException ex) {
         return Problems.create(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage(), ex.getCode());
+    }
+
+    // The reason tells the app what the owner has to do first, e.g. withdraw what is left
+    @ExceptionHandler(AccountCannotBeClosedException.class)
+    ProblemDetail handleCannotClose(AccountCannotBeClosedException ex) {
+        ProblemDetail problem = Problems.create(HttpStatus.UNPROCESSABLE_CONTENT, "Account cannot be closed",
+                ex.getMessage(), ex.getCode());
+        problem.setProperty("reason", ex.reason());
+        return problem;
+    }
+
+    @ExceptionHandler(RoleChangeBlockedException.class)
+    ProblemDetail handleRoleChangeBlocked(RoleChangeBlockedException ex) {
+        ProblemDetail problem = Problems.create(HttpStatus.UNPROCESSABLE_CONTENT, "Role change blocked",
+                ex.getMessage(), ex.getCode());
+        problem.setProperty("reason", ex.reason());
+        return problem;
+    }
+
+    // The reason says which field or picture to fix
+    @ExceptionHandler(InvalidIdentityDocumentException.class)
+    ProblemDetail handleInvalidDocument(InvalidIdentityDocumentException ex) {
+        ProblemDetail problem = Problems.create(HttpStatus.UNPROCESSABLE_CONTENT, "Invalid identity document",
+                ex.getMessage(), ex.getCode());
+        problem.setProperty("reason", ex.reason());
+        return problem;
+    }
+
+    @ExceptionHandler(IdentityVerificationConflictException.class)
+    ProblemDetail handleVerificationConflict(IdentityVerificationConflictException ex) {
+        ProblemDetail problem = Problems.create(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode());
+        problem.setProperty("reason", ex.reason());
+        return problem;
+    }
+
+    @ExceptionHandler(IdentityVerificationLimitException.class)
+    ProblemDetail handleVerificationLimit(IdentityVerificationLimitException ex) {
+        return Problems.create(HttpStatus.TOO_MANY_REQUESTS, "Too many attempts", ex.getMessage(), ex.getCode());
+    }
+
+    @ExceptionHandler(IdentityVerificationNotFoundException.class)
+    ProblemDetail handleVerificationNotFound(IdentityVerificationNotFoundException ex) {
+        return Problems.create(HttpStatus.NOT_FOUND, "Not found", ex.getMessage(), ex.getCode());
     }
 
     @ExceptionHandler(SessionNotFoundException.class)
