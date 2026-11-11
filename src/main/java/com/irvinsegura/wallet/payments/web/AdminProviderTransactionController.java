@@ -52,6 +52,16 @@ class AdminProviderTransactionController {
     }
 
     /**
+     * How many movements wait for attention, for the administrators' home page.
+     */
+    @GetMapping("/provider-transactions/counts")
+    ProviderTransactionCountsResponse counts() {
+        return new ProviderTransactionCountsResponse(
+                providerBalanceService.count(ProviderTransaction.Status.UNMATCHED),
+                providerBalanceService.count(ProviderTransaction.Status.PENDING));
+    }
+
+    /**
      * Closes an unmatched movement with what the administrator concluded. Audited; posts nothing to the ledger.
      */
     @PostMapping("/provider-transactions/{provider}/{transactionId}/resolve")
@@ -72,6 +82,13 @@ class AdminProviderTransactionController {
     }
 
     record ResolveRequest(@NotBlank @Size(max = 200) String reason) {
+    }
+
+    /**
+     * @param unmatched what the application could not tell, waiting for a person
+     * @param pending   waiting to be recorded, usually for their payment's webhook
+     */
+    record ProviderTransactionCountsResponse(long unmatched, long pending) {
     }
 
     /**

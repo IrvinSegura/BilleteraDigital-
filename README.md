@@ -1,457 +1,684 @@
-# Digital Wallet
+# Billetera Digital
 
-Digital wallet REST API with a double-entry ledger, built as a modular monolith with clean architecture.
+API REST de billetera digital con un libro mayor de partida doble, construida como un monolito modular con arquitectura
+limpia.
 
-**Stack:** Java 25, Spring Boot 4.1, Spring Security (OAuth2 resource server, JWT RS256), PostgreSQL 17, Flyway,
-Spring Modulith, ArchUnit, Testcontainers, Docker, Micrometer (Prometheus, OpenTelemetry tracing), Bucket4j,
-Grafana, Tempo, Spring Mail and Mailpit, Stripe Checkout.
+**Stack:** Java 25, Spring Boot 4.1, Spring Security (servidor de recursos OAuth2, JWT RS256), PostgreSQL 17, Flyway,
+Spring Modulith, ArchUnit, Testcontainers, Docker, Micrometer (Prometheus, trazas con OpenTelemetry), Bucket4j,
+Grafana, Tempo, Spring Mail y Mailpit, Stripe Checkout.
 
-## Architecture
+## Aplicación web
+
+La app para clientes, agentes de soporte y administradores (React + TypeScript) vive en su propio repositorio,
+[BilleteraDigitalWeb](https://github.com/IrvinSegura/BilleteraDigitalWeb).
+
+| | |
+| --- | --- |
+| ![Inicio del cliente: saldo, entradas y salidas, gráfica del saldo y actividad reciente](https://raw.githubusercontent.com/IrvinSegura/BilleteraDigitalWeb/main/docs/screenshots/customer-dashboard.png) | ![Estados de cuenta, eligiendo las fechas en un calendario](https://raw.githubusercontent.com/IrvinSegura/BilleteraDigitalWeb/main/docs/screenshots/customer-statements.png) |
+| Inicio del cliente | Estados de cuenta |
+| ![Un caso de soporte: las operaciones del cliente, lo escalado y el chat](https://raw.githubusercontent.com/IrvinSegura/BilleteraDigitalWeb/main/docs/screenshots/support-case.png) | ![Inicio de administración](https://raw.githubusercontent.com/IrvinSegura/BilleteraDigitalWeb/main/docs/screenshots/admin-home.png) |
+| Un caso de soporte | Administración |
+
+**[Ver las 37 capturas, por rol, en el repositorio del front →](https://github.com/IrvinSegura/BilleteraDigitalWeb#capturas)**
+
+## Arquitectura
 
 ```
 com.irvinsegura.wallet
-├── shared          open kernel: Money, DomainException, error handling, correlation id, rate limiting
-├── identity        users, authentication, tokens
-├── accounts        wallets, status, limits
-├── ledger          double-entry journal, balances, reconciliation
-├── transfers       deposits, withdrawals, transfers (idempotent)
-├── payments        payment provider (Stripe or simulated), checkout, webhooks, refunds
-├── audit           append-only audit log (event listener)
-└── notifications   in-app inbox and emails (event listener)
+├── shared          núcleo abierto: Money, DomainException, manejo de errores, correlation id, límites de peticiones
+├── identity        usuarios, autenticación, tokens
+├── accounts        billeteras, estado, límites
+├── ledger          diario de partida doble, saldos, conciliación
+├── transfers       depósitos, retiros (pagos SPEI por STP), transferencias (idempotentes)
+├── payments        proveedor de pagos (Stripe o simulado), checkout, webhooks, reembolsos
+├── audit           bitácora de auditoría de solo inserción (listener de eventos)
+├── notifications   bandeja en la app y correos (listener de eventos)
+└── support         chat con un bot que responde desde archivos Markdown, y luego con un agente
 ```
 
-Each module follows the same layout, and dependencies always point inward:
+Cada módulo sigue la misma estructura, y las dependencias siempre apuntan hacia adentro:
 
 ```
 web ──> application ──> domain <── infrastructure
 ```
 
-- `domain` has no framework dependencies.
-- Module boundaries are verified by `ModularityTests` (Spring Modulith) and layer rules by
-  `CleanArchitectureTests` (ArchUnit). Breaking either fails the build.
+- `domain` no depende de ningún framework.
+- Los límites entre módulos los verifica `ModularityTests` (Spring Modulith) y las reglas de capas
+  `CleanArchitectureTests` (ArchUnit). Romper cualquiera de los dos hace fallar el build.
 
-## Running locally
+## Correr en local
 
-Requirements: JDK 25 and Docker.
+Requisitos: JDK 25 y Docker.
 
 ```bash
-cp .env.example .env   # then fill in MAIL_USERNAME, MAIL_PASSWORD and EMAIL_FROM
+cp .env.example .env   # luego llena MAIL_USERNAME, MAIL_PASSWORD y EMAIL_FROM
 docker compose up -d
 ./mvnw spring-boot:run
 ```
 
-- PostgreSQL listens on host port 5433 (`DB_PORT`) to avoid clashing with other local databases.
-- Emails are real, sent through Gmail as in production, so use addresses you can read. The dev profile reads `.env`
-  itself, so runs from the IDE need no extra environment variables.
-- API: http://localhost:8080. Actuator has its own port, as in production:
-  http://localhost:8081/actuator/health and http://localhost:8081/actuator/prometheus
-- API docs (dev profile only): http://localhost:8080/swagger-ui.html
+- PostgreSQL escucha en el puerto 5440 del host (`DB_PORT`) para no chocar con otras bases de datos locales.
+- Los correos son reales, se envían por Gmail como en producción, así que usa direcciones que puedas leer. El perfil
+  dev lee `.env` por sí mismo, así que al correr desde el IDE no hacen falta variables de entorno extra.
+- API: http://localhost:8080. Actuator tiene su propio puerto, como en producción:
+  http://localhost:8081/actuator/health y http://localhost:8081/actuator/prometheus
+- Documentación de la API (solo perfil dev): http://localhost:8080/swagger-ui.html
 
-### Database users
+### Usuarios de la base de datos
 
-| User | Used by | Privileges |
+| Usuario | Lo usa | Privilegios |
 |---|---|---|
-| `wallet_owner` | Flyway | Owns the schema, runs migrations |
-| `wallet_app` | Application | Data access only; ledger, reconciliation and audit tables are append-only (no UPDATE/DELETE) |
+| `wallet_owner` | Flyway | Dueño del esquema, corre las migraciones |
+| `wallet_app` | La aplicación | Solo acceso a datos; las tablas del libro mayor, de conciliación y de auditoría son de solo inserción (sin UPDATE/DELETE) |
 
-The app user is created by `docker/postgres/init` the first time the volume is initialized.
-To reset the database: `docker compose down -v`.
+El usuario de la app lo crea `docker/postgres/init` la primera vez que se inicializa el volumen.
+Para reiniciar la base de datos: `docker compose down -v`.
 
-### Running everything in containers
+### Correr todo en contenedores
 
 ```bash
 docker compose --profile app up -d --build
 ```
 
-### Troubleshooting on Windows
+### Problemas en Windows
 
-If startup fails with `Unable to establish loopback connection`, the JDK cannot create its internal socket in
-`%TEMP%` (this happens when the Windows user name contains spaces and `%TEMP%` is a short `~1` path).
-Add this VM option to the run configuration, pointing to any existing folder with a short path:
+Si el arranque falla con `Unable to establish loopback connection`, el JDK no puede crear su socket interno en
+`%TEMP%` (pasa cuando el nombre del usuario de Windows tiene espacios y `%TEMP%` es una ruta corta con `~1`).
+Agrega esta opción de VM a la configuración de ejecución, apuntando a cualquier carpeta existente con una ruta corta:
 
 ```
 -Djdk.net.unixdomain.tmpdir=C:\tmp
 ```
 
-## Authentication
+## Autenticación
 
-| Method | Path | Auth | Description |
+| Método | Ruta | Auth | Descripción |
 |---|---|---|---|
-| POST | `/api/v1/auth/register` | public | Sign up (`email`, `password`, `fullName`, `captchaToken`); always `202`, whether or not the email has an account |
-| POST | `/api/v1/auth/login` | public | Get an access token (15 min) and a refresh token (7 days); with two-factor on, also send `twoFactorCode`. `403 EMAIL_NOT_VERIFIED` until the email is verified; send `"resendVerification": true` to get a new link |
-| POST | `/api/v1/auth/refresh` | public | Swap a refresh token for a new pair; the old one stops working |
-| POST | `/api/v1/auth/logout` | public | Revoke the refresh token and every token rotated from it |
-| POST | `/api/v1/auth/email-verification/confirm` | public | Confirm the email with the token from the emailed link (`204`) |
-| POST | `/api/v1/auth/password-reset` | public | Email a reset link (`{"email", "captchaToken"}`); always `202`, registered or not |
-| POST | `/api/v1/auth/password-reset/confirm` | public | Set a new password with the link's token; ends every session and lifts a lockout |
-| GET | `/api/v1/users/me` | bearer | Profile of the authenticated user, with `phone`, `status`, `emailVerified` and `twoFactorEnabled` |
-| PATCH | `/api/v1/users/me` | bearer | Change `fullName` (1 to 100 characters, spaces collapsed) and `phone` (E.164 like `+525512345678`; spaces, dashes and parentheses are dropped, `""` removes it); a field left out keeps its value. `422 INVALID_PROFILE` otherwise |
-| GET | `/api/v1/users/me/sessions` | bearer | Signed-in devices: user agent, IP address, when it started and was last used, and which one is `current` |
-| DELETE | `/api/v1/users/me/sessions/{id}` | bearer | End one session (`204`; `404 SESSION_NOT_FOUND` if it isn't yours or already ended) |
-| DELETE | `/api/v1/users/me/sessions` | bearer | End every session but the current one (`{"revoked": 2}`) |
-| POST | `/api/v1/users/me/email-verification` | bearer | Send a new verification link (`202`); older links stop working |
-| POST | `/api/v1/users/me/password` | bearer | Change the password (`currentPassword`, `newPassword`); ends every other session and returns new tokens |
-| POST | `/api/v1/users/me/two-factor` | bearer | Start setting up an authenticator app (`{"currentPassword"}`): returns `secret` and `otpauthUri` for a QR code (`201`) |
-| POST | `/api/v1/users/me/two-factor/confirm` | bearer | Turn it on with a code from the app (`{"code"}`); returns 10 recovery codes, shown only once |
-| POST | `/api/v1/users/me/two-factor/disable` | bearer | Turn it off (`{"currentPassword", "code"}`, an app code or a recovery code) (`204`) |
-| GET | `/api/v1/users/me/two-factor` | bearer | Whether it is on and how many recovery codes are left |
+| POST | `/api/v1/auth/register` | pública | Registro (`email`, `password`, `fullName`, `captchaToken`); siempre `202`, tenga o no cuenta el correo |
+| POST | `/api/v1/auth/login` | pública | Obtiene un token de acceso (15 min) y uno de renovación (7 días); con doble factor activo, envía también `twoFactorCode`. `403 EMAIL_NOT_VERIFIED` hasta que se verifique el correo; envía `"resendVerification": true` para recibir un enlace nuevo |
+| POST | `/api/v1/auth/refresh` | pública | Cambia un token de renovación por un par nuevo; el anterior deja de funcionar |
+| POST | `/api/v1/auth/logout` | pública | Revoca el token de renovación y todos los que se rotaron a partir de él |
+| POST | `/api/v1/auth/email-verification/confirm` | pública | Confirma el correo con el token del enlace enviado (`204`) |
+| POST | `/api/v1/auth/password-reset` | pública | Envía por correo un enlace para restablecer (`{"email", "captchaToken"}`); siempre `202`, esté registrado o no |
+| POST | `/api/v1/auth/password-reset/confirm` | pública | Pone una contraseña nueva con el token del enlace; cierra todas las sesiones y quita un bloqueo |
+| GET | `/api/v1/users/me` | bearer | Perfil del usuario autenticado, con `phone`, `status`, `emailVerified`, `twoFactorEnabled` y `mustChangePassword` |
+| PATCH | `/api/v1/users/me` | bearer | Cambia `fullName` (de 1 a 100 caracteres, espacios repetidos unidos) y `phone` (E.164 como `+525512345678`; se quitan espacios, guiones y paréntesis, `""` lo borra); un campo omitido conserva su valor. Si no, `422 INVALID_PROFILE` |
+| PUT | `/api/v1/users/me/language` | bearer | Define el idioma de los correos del usuario (`{"language": "es"}` o `"en"`); la app web lo mantiene igual al que muestra |
+| GET | `/api/v1/users/me/sessions` | bearer | Dispositivos con sesión: user agent, dirección IP, cuándo empezó y cuándo se usó por última vez, y cuál es la `current` |
+| DELETE | `/api/v1/users/me/sessions/{id}` | bearer | Cierra una sesión (`204`; `404 SESSION_NOT_FOUND` si no es tuya o ya terminó) |
+| DELETE | `/api/v1/users/me/sessions` | bearer | Cierra todas las sesiones menos la actual (`{"revoked": 2}`) |
+| POST | `/api/v1/users/me/email-verification` | bearer | Envía un enlace de verificación nuevo (`202`); los anteriores dejan de funcionar |
+| POST | `/api/v1/users/me/password` | bearer | Cambia la contraseña (`currentPassword`, `newPassword`); cierra todas las demás sesiones y devuelve tokens nuevos. `422 PASSWORD_UNCHANGED` si la nueva es la actual |
+| POST | `/api/v1/users/me/two-factor` | bearer | Empieza a configurar una app de autenticación (`{"currentPassword"}`): devuelve `secret` y `otpauthUri` para un código QR (`201`) |
+| POST | `/api/v1/users/me/two-factor/confirm` | bearer | Lo activa con un código de la app (`{"code"}`); devuelve 10 códigos de recuperación, que se muestran una sola vez |
+| POST | `/api/v1/users/me/two-factor/disable` | bearer | Lo desactiva (`{"currentPassword", "code"}`, un código de la app o uno de recuperación) (`204`) |
+| GET | `/api/v1/users/me/two-factor` | bearer | Si está activo y cuántos códigos de recuperación quedan |
 
-Every other endpoint requires `Authorization: Bearer <accessToken>`. Five failed logins in a row lock the account
-for 15 minutes.
+Todos los demás endpoints requieren `Authorization: Bearer <accessToken>`. Cinco inicios de sesión fallidos seguidos
+bloquean la cuenta 15 minutos.
 
-Passwords (on sign-up, change and reset) need 12 to 64 characters and no particular mix (`422 WEAK_PASSWORD`
-otherwise), following NIST SP 800-63B. Ones that are easy to guess are refused with `422 COMMON_PASSWORD`: common
-passwords and words (`common-passwords.txt` next to `PasswordPolicy`), the same ones dressed up with digits, symbols,
-accents or look-alike characters (`P@ssw0rd2024!`, `Contraseña123`), repeats, sequences and keyboard walks
-(`123456789012`, `qwertyuiopas`) and the user's own name or email (`AnaLopez1990`). Passwords that pass those
-rules are then looked up in Have I Been Pwned's Pwned Passwords and refused with `422 BREACHED_PASSWORD` when they
-appear in a known breach. Only the first 5 characters of the password's SHA-1 are sent (k-anonymity) and responses are
-padded. The lookup gives up after 2 seconds and lets the password through, so an outage never blocks sign-ups; it runs
-before the database transaction. Turn it off with `PASSWORD_BREACH_CHECK=false` (tests do).
+Las contraseñas (al registrarse, cambiarla y restablecerla) necesitan de 12 a 64 caracteres y ninguna mezcla en
+particular (si no, `422 WEAK_PASSWORD`), siguiendo NIST SP 800-63B. Las fáciles de adivinar se rechazan con
+`422 COMMON_PASSWORD`: contraseñas y palabras comunes (`common-passwords.txt` junto a `PasswordPolicy`), esas mismas
+disfrazadas con dígitos, símbolos, acentos o caracteres parecidos (`P@ssw0rd2024!`, `Contraseña123`), repeticiones,
+secuencias y recorridos del teclado (`123456789012`, `qwertyuiopas`) y el propio nombre o correo del usuario
+(`AnaLopez1990`). Las que pasan esas reglas se buscan después en Pwned Passwords de Have I Been Pwned y se rechazan con
+`422 BREACHED_PASSWORD` cuando aparecen en una filtración conocida. Solo se envían los primeros 5 caracteres del SHA-1
+de la contraseña (k-anonimato) y las respuestas vienen con relleno. La búsqueda se rinde a los 2 segundos y deja pasar
+la contraseña, así que una caída nunca bloquea los registros; corre antes de la transacción de la base de datos. Se
+apaga con `PASSWORD_BREACH_CHECK=false` (las pruebas lo hacen).
 
-Ending a session revokes its refresh token at once, so it can't be renewed; an access token it already holds stays
-valid until it expires (at most 15 minutes). Access tokens carry the session id as the `sid` claim, which is how
-`current` is told apart.
+Cerrar una sesión revoca su token de renovación al momento, así que ya no se puede renovar; un token de acceso que ya
+tenga sigue siendo válido hasta que expira (15 minutos como máximo). Los tokens de acceso llevan el id de la sesión en el
+claim `sid`, que es como se distingue la `current`.
 
-### Web apps
+### Apps web
 
-A browser app should send `X-Session-Mode: cookie` on login, refresh, logout and password change. The refresh token
-then travels only in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie scoped to `/api/v1/auth`, so page scripts
-(and an XSS bug) never see it: the JSON answer leaves `refreshToken` null, and `POST /api/v1/auth/refresh` with that
-header and no body uses the cookie. The cookie is ignored without the header, which a page on another site cannot
-add, so forged cross-site requests cannot use it. Keep the access token in memory only. Mobile and server clients
-keep sending and receiving the refresh token in the body, as before.
+Una app de navegador debe enviar `X-Session-Mode: cookie` al iniciar sesión, renovar, cerrar sesión y cambiar la
+contraseña. Así, el token de renovación viaja solo en una cookie `HttpOnly`, `Secure`, `SameSite=Strict` limitada a
+`/api/v1/auth`, de modo que los scripts de la página (y un fallo XSS) nunca lo ven: la respuesta JSON deja
+`refreshToken` en null, y `POST /api/v1/auth/refresh` con ese encabezado y sin cuerpo usa la cookie. Sin el
+encabezado, la cookie se ignora, y una página de otro sitio no puede agregarlo, así que las peticiones falsificadas
+desde otro sitio no pueden usarla. Guarda el token de acceso solo en memoria. Los clientes móviles y de servidor siguen
+enviando y recibiendo el token de renovación en el cuerpo, como antes.
 
-The API answers CORS only for the origins in `CORS_ALLOWED_ORIGINS` (comma-separated, exact origins, with
-credentials); none by default. A dev server proxying `/api` to `localhost:8080` needs none. `SameSite=Strict` means
-the app and the API must share a site, e.g. `app.example.com` and `api.example.com`.
+La API responde CORS solo para los orígenes de `CORS_ALLOWED_ORIGINS` (separados por comas, orígenes exactos, con
+credenciales); ninguno por defecto. Un servidor de desarrollo que redirige `/api` a `localhost:8080` no necesita
+ninguno. `SameSite=Strict` significa que la app y la API deben compartir sitio, por ejemplo `app.example.com` y
+`api.example.com`.
 
-### Two-factor authentication
+### Autenticación de doble factor
 
-Users can add an authenticator app (TOTP: 6 digits, 30-second steps, any app such as Google Authenticator or
-1Password). Until the first code is confirmed nothing changes, so a setup abandoned halfway never locks anyone out.
-Turning it on ends every session, the caller's too, so a session stolen before has no way to keep going; the next
-login asks for the code. Once it is on:
+Los usuarios pueden agregar una app de autenticación (TOTP: 6 dígitos, pasos de 30 segundos, cualquier app como Google
+Authenticator o 1Password). Hasta que se confirma el primer código no cambia nada, así que una configuración abandonada
+a medias nunca deja a nadie fuera. Activarlo cierra todas las sesiones, también la de quien lo activa, para que una
+sesión robada antes no pueda seguir; el siguiente inicio de sesión pide el código. Una vez activo:
 
-- Login answers `403 TWO_FACTOR_REQUIRED` after a correct password without `twoFactorCode`; a wrong code is a failed
-  login (`401`) and counts toward the lockout, which is what makes guessing six digits hopeless.
-- Each code works once, so a code read over someone's shoulder is useless afterwards. A recovery code (`xxxxx-xxxxx`)
-  works wherever an app code does, also once.
-- Adding a bank account needs `twoFactorCode` too, and turning two-factor off needs the password and a code.
-- Support can turn it off for someone who lost their phone and recovery codes
-  (`POST /api/v1/admin/users/{id}/two-factor/reset`, with a reason); the user is notified and it is audited.
-- Administrators must have it: until they turn it on and sign in again with a code, every `/api/v1/admin/**`
-  endpoint answers `403 ADMIN_TWO_FACTOR_REQUIRED` (`wallet.identity.admin-requires-two-factor`, off only in tests).
-  Access tokens carry a `two_factor` claim for this.
+- El inicio de sesión responde `403 TWO_FACTOR_REQUIRED` tras una contraseña correcta sin `twoFactorCode`; un código
+  incorrecto es un inicio fallido (`401`) y cuenta para el bloqueo, que es lo que hace inútil adivinar seis dígitos.
+- Cada código funciona una vez, así que un código visto por encima del hombro ya no sirve después. Un código de
+  recuperación (`xxxxx-xxxxx`) funciona donde funciona uno de la app, también una sola vez.
+- Agregar una cuenta bancaria también necesita `twoFactorCode`, y desactivar el doble factor necesita la contraseña y
+  un código.
+- Soporte puede desactivarlo a quien perdió su teléfono y sus códigos de recuperación
+  (`POST /api/v1/admin/users/{id}/two-factor/reset`, con un motivo); se avisa al usuario y queda en la auditoría.
+- Los administradores deben tenerlo: hasta que lo activan y vuelven a iniciar sesión con un código, todos los
+  endpoints `/api/v1/admin/**` responden `403 ADMIN_TWO_FACTOR_REQUIRED` (`wallet.identity.admin-requires-two-factor`,
+  apagado solo en las pruebas). Los tokens de acceso llevan un claim `two_factor` para esto.
 
-App secrets are stored encrypted with AES-256-GCM. The key comes from `TWO_FACTOR_ENCRYPTION_KEY` (Base64 of 32
-random bytes, `openssl rand -base64 32`); production refuses to start without it, and changing it disables every app
-already set up. The dev and test profiles use fixed keys.
+Los secretos de las apps se guardan cifrados con AES-256-GCM. La llave viene de `TWO_FACTOR_ENCRYPTION_KEY` (Base64 de
+32 bytes aleatorios, `openssl rand -base64 32`); producción se niega a arrancar sin ella, y cambiarla deshabilita
+todas las apps ya configuradas. Los perfiles dev y test usan llaves fijas.
 
-### Email verification and password recovery
+### Verificación de correo y recuperación de contraseña
 
-Registering emails a link to confirm the address, and the account cannot sign in until it is followed: with the right
-password, login answers `403 EMAIL_NOT_VERIFIED`, and with `"resendVerification": true` it also emails a new link.
-Sign-up answers `202` with no body whether or not the address already has an account (the password is hashed either
-way, so the timing matches too), so it cannot be used to find out who is registered. Only the owner learns about it:
-an unverified account gets a new link, a verified one an email saying someone tried to sign up with it. Withdrawals
-and transfers still check verification too (`403 EMAIL_NOT_VERIFIED`), for sessions opened before this rule.
+Al registrarse se envía un enlace para confirmar la dirección, y la cuenta no puede iniciar sesión hasta seguirlo: con
+la contraseña correcta, el inicio de sesión responde `403 EMAIL_NOT_VERIFIED`, y con `"resendVerification": true`
+también envía un enlace nuevo. El registro responde `202` sin cuerpo tenga o no cuenta la dirección (la contraseña se
+cifra en ambos casos, así que el tiempo de respuesta también coincide), así que no sirve para averiguar quién está
+registrado. Solo el dueño se entera: una cuenta sin verificar recibe un enlace nuevo, y una verificada un correo que
+dice que alguien intentó registrarse con ella. Los retiros y las transferencias también revisan la verificación
+(`403 EMAIL_NOT_VERIFIED`), para las sesiones abiertas antes de esta regla.
 
-Sign-up and password reset requests email any address they are given, so they also need a Cloudflare Turnstile token
-(`captchaToken`, `422 CAPTCHA_FAILED` otherwise). It is on in production (`CAPTCHA_ENABLED`, with
-`TURNSTILE_SECRET_KEY`; the web app needs the matching site key) and off in the dev and test profiles. Unlike the
-breached password lookup it fails closed: if Cloudflare cannot be reached within 3 seconds, the request is refused.
-Cloudflare's test keys (site key `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`) always pass
-for trying it locally.
+Las solicitudes de registro y de restablecimiento de contraseña envían correo a cualquier dirección que reciban, así
+que también necesitan un token de Cloudflare Turnstile (`captchaToken`; si no, `422 CAPTCHA_FAILED`). Está activo en
+producción (`CAPTCHA_ENABLED`, con `TURNSTILE_SECRET_KEY`; la app web necesita la llave de sitio correspondiente) y
+apagado en los perfiles dev y test. A diferencia de la búsqueda de contraseñas filtradas, falla cerrado: si no se puede
+contactar a Cloudflare en 3 segundos, la solicitud se rechaza. Las llaves de prueba de Cloudflare (llave de sitio
+`1x00000000000000000000AA`, secreto `1x0000000000000000000000000000000AA`) siempre pasan, para probarlo en local.
 
-Links point to the client app
-(`wallet.notifications.email.app-url`, `APP_URL` in production) with the token in the fragment
-(`/verify-email#token=...`, `/reset-password#token=...`); the app posts the token to the endpoints above.
-Each link works once and only the newest one works: verification links last 24 hours, reset links 30 minutes. Only a
-hash of each token is stored, and tokens are never written to the event outbox. Locally the emails reach the real
-inbox too, through Gmail.
+Los enlaces apuntan a la app cliente (`wallet.notifications.email.app-url`, `APP_URL` en producción) con el token en el
+fragmento (`/verify-email#token=...`, `/reset-password#token=...`); la app envía el token a los endpoints de arriba.
+Cada enlace funciona una vez y solo funciona el más reciente: los de verificación duran 24 horas y los de
+restablecimiento 30 minutos. Solo se guarda un hash de cada token, y los tokens nunca se escriben en el outbox de
+eventos. En local, los correos también llegan a la bandeja real, por Gmail.
 
-### Signing keys
+### Llaves de firma
 
-The dev and test profiles generate a temporary RSA key pair at startup, so restarting the app invalidates all
-tokens. Production requires a fixed pair:
+Los perfiles dev y test generan un par de llaves RSA temporal al arrancar, así que reiniciar la app invalida todos los
+tokens. Producción requiere un par fijo:
 
 ```bash
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-private.pem
 openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem
 ```
 
-Mount both files as secrets and point `JWT_PRIVATE_KEY_LOCATION` and `JWT_PUBLIC_KEY_LOCATION` at them
-(e.g. `file:/run/secrets/jwt-private.pem`). `*.pem` files are git-ignored.
+Monta ambos archivos como secretos y apunta `JWT_PRIVATE_KEY_LOCATION` y `JWT_PUBLIC_KEY_LOCATION` a ellos
+(por ejemplo, `file:/run/secrets/jwt-private.pem`). Git ignora los archivos `*.pem`.
 
-## Wallets and deposits
+## Billeteras y depósitos
 
-| Method | Path | Description |
+| Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/api/v1/wallets` | Open a wallet (`{"currency": "MXN"}`); one per currency, MXN and USD supported |
-| GET | `/api/v1/wallets` | Your wallets with their balances |
-| GET | `/api/v1/wallets/{id}` | One wallet; other users' wallets answer `404` |
-| GET | `/api/v1/wallets/{id}/movements?page=0&size=20` | Statement, newest first, with the balance after each movement. Filters, all optional: `from` and `to` (calendar days, both included), `type` (repeatable: `DEPOSIT`, `TRANSFER`, `WITHDRAWAL`, `WITHDRAWAL_REVERSAL`...), `direction` (`IN`, `OUT`) and `q` (start of the folio, hex digits and dashes) |
-| GET | `/api/v1/wallets/{id}/movements/{transactionId}` | One movement, for its receipt (`404 MOVEMENT_NOT_FOUND`) |
-| GET | `/api/v1/wallets/{id}/statement?from=2026-11-01&to=2026-11-30` | The movements of a period (at most 366 days, the current month by default) as a CSV download, oldest first |
-| GET | `/api/v1/wallets/{id}/summary?month=2026-11` | `openingBalance`, money in and out and `closingBalance` of a calendar month (the current one by default), summed over every movement |
-| GET | `/api/v1/wallets/{id}/limits` | The daily outgoing limit, what was used today, what is left and when it resets |
-| GET | `/api/v1/wallets/{id}/balance-history?days=30` | Closing balance of each of the last `days` days (1 to 366, today included), plus `openingBalance` from the day before; days before the wallet opened are left out. Days and months follow `wallet.accounts.limit-zone` |
-| POST | `/api/v1/wallets/{id}/deposits` | Top-up through the payment provider (`{"amount": 100.50}`, at most 100,000.00 MXN or 5,000.00 USD per deposit, else `422 DEPOSIT_TOO_LARGE`); needs `Idempotency-Key` |
-| GET | `/api/v1/wallets/{id}/deposits/{depositId}` | A deposit and its status, to follow it after the checkout |
-| POST | `/api/v1/wallets/{id}/withdrawals` | Payout to the user's bank (`{"amount": 100, "bankAccountId": "..."}`, bank account required for MXN); needs `Idempotency-Key` |
-| POST | `/api/v1/bank-accounts` | Add a CLABE (`{"clabe": "...", "holderName": "...", "twoFactorCode": "..."}`, the code only with two-factor on); at most 5, only the last four digits are returned |
-| GET | `/api/v1/bank-accounts` | Your bank accounts |
-| DELETE | `/api/v1/bank-accounts/{id}` | Remove one (`204`); withdrawals already on their way still arrive |
-| GET | `/api/v1/wallets/{id}/withdrawals/{withdrawalId}` | A withdrawal and the status of its payout |
+| POST | `/api/v1/wallets` | Abre una billetera (`{"currency": "MXN"}`); una por moneda, se admiten MXN y USD |
+| GET | `/api/v1/wallets` | Tus billeteras con sus saldos |
+| GET | `/api/v1/wallets/{id}` | Una billetera; las de otros usuarios responden `404` |
+| GET | `/api/v1/wallets/{id}/movements?page=0&size=20` | Movimientos, los más recientes primero, con el saldo después de cada uno y, en las transferencias, `counterpartyName` y `description`. Filtros, todos opcionales: `from` y `to` (días del calendario, ambos incluidos), `type` (repetible: `DEPOSIT`, `TRANSFER`, `WITHDRAWAL`, `WITHDRAWAL_REVERSAL`...), `direction` (`IN`, `OUT`) y `q` (hasta 60 caracteres: el inicio del folio, o parte del nombre de la otra persona o de la descripción, sin importar mayúsculas ni acentos; lee las 1,000 transferencias más recientes de la billetera que coincidan) |
+| GET | `/api/v1/wallets/{id}/movements/{transactionId}` | Un movimiento, para su comprobante (`404 MOVEMENT_NOT_FOUND`) |
+| GET | `/api/v1/wallets/{id}/statement?from=2026-11-01&to=2026-11-30` | Los movimientos de un periodo (366 días como máximo, el mes actual por defecto) como descarga CSV, los más antiguos primero, con la otra persona y la descripción de cada transferencia |
+| GET | `/api/v1/wallets/{id}/summary?month=2026-11` | `openingBalance`, entradas y salidas y `closingBalance` de un mes del calendario (el actual por defecto), sumados sobre todos los movimientos |
+| GET | `/api/v1/wallets/{id}/limits` | El límite diario de salidas, lo usado hoy, lo que queda y cuándo se reinicia |
+| GET | `/api/v1/wallets/{id}/balance-history?days=30` | Saldo de cierre de cada uno de los últimos `days` días (de 1 a 366, hoy incluido), más `openingBalance` del día anterior; se omiten los días antes de que se abriera la billetera. Los días y meses siguen `wallet.accounts.limit-zone` |
+| POST | `/api/v1/wallets/{id}/deposits` | Recarga por el proveedor de pagos (`{"amount": 100.50}`, como máximo 100,000.00 MXN o 5,000.00 USD por depósito; si no, `422 DEPOSIT_TOO_LARGE`); necesita `Idempotency-Key` |
+| GET | `/api/v1/wallets/{id}/deposits/{depositId}` | Un depósito y su estado, para seguirlo después del checkout |
+| POST | `/api/v1/wallets/{id}/withdrawals` | Pago al banco del usuario (`{"amount": 100, "bankAccountId": "..."}`, cuenta bancaria obligatoria para MXN); necesita `Idempotency-Key` |
+| POST | `/api/v1/bank-accounts` | Agrega una CLABE (`{"clabe": "...", "holderName": "...", "twoFactorCode": "..."}`, el código solo con doble factor activo); 5 como máximo, solo se devuelven los últimos cuatro dígitos |
+| GET | `/api/v1/bank-accounts` | Tus cuentas bancarias |
+| DELETE | `/api/v1/bank-accounts/{id}` | Borra una (`204`); los retiros que ya van en camino sí llegan |
+| GET | `/api/v1/wallets/{id}/withdrawals/{withdrawalId}` | Un retiro y el estado de su pago |
 
-All of them require a bearer token. Amounts are returned as decimal strings (`{"amount": "100.50", "currency":
-"MXN"}`) so clients never lose cents to floating point. Money is recorded in a double-entry ledger.
+Todos requieren un token bearer. Los montos se devuelven como cadenas decimales (`{"amount": "100.50", "currency":
+"MXN"}`) para que los clientes nunca pierdan centavos por el punto flotante. El dinero se registra en un libro mayor de
+partida doble.
 
-### Deposits and the payment provider
+### Depósitos y el proveedor de pagos
 
-A deposit is credited only once the payment provider confirms the money, chosen with `PAYMENT_PROVIDER`:
+Un depósito se acredita solo cuando el proveedor de pagos confirma el dinero; el proveedor se elige con
+`PAYMENT_PROVIDER`:
 
-- `simulated` (default outside production): the payment succeeds at once, so the deposit answers `201` with
-  `"status": "COMPLETED"` and the new balance.
-- `stripe`: the deposit answers `202` with `"status": "PENDING"` and a `checkoutUrl` on Stripe Checkout (cards only),
-  valid for 30 minutes. Stripe sends the payer back to `wallet.payments.return-url` with `?payment=<deposit id>`, and
-  the client polls the deposit until it becomes `COMPLETED`, `EXPIRED` or `REJECTED`.
+- `simulated` (por defecto fuera de producción): el pago se completa al momento, así que el depósito responde `201`
+  con `"status": "COMPLETED"` y el saldo nuevo.
+- `stripe`: el depósito responde `202` con `"status": "PENDING"` y un `checkoutUrl` de Stripe Checkout (solo
+  tarjetas), válido por 30 minutos. Stripe regresa al pagador a `wallet.payments.return-url` con
+  `?payment=<id del depósito>`, y el cliente consulta el depósito hasta que pasa a `COMPLETED`, `EXPIRED` o `REJECTED`.
 
-Stripe confirms payments with a signed webhook to `POST /api/v1/payments/webhooks/stripe`; each event is applied once
-however often it arrives, and a job asks Stripe about checkouts whose webhook never came. If the wallet was frozen or
-the account disabled while the payer was paying, the deposit is `REJECTED`, nothing is credited and the payment is
-refunded automatically. If Stripe cannot be reached the deposit fails with `503 PAYMENT_PROVIDER_UNAVAILABLE`.
+Stripe confirma los pagos con un webhook firmado a `POST /api/v1/payments/webhooks/stripe`; cada evento se aplica una
+vez, sin importar cuántas veces llegue, y un proceso le pregunta a Stripe por los checkouts cuyo webhook nunca llegó.
+Si la billetera se congeló o la cuenta se deshabilitó mientras el pagador pagaba, el depósito queda `REJECTED`, no se
+acredita nada y el pago se reembolsa automáticamente. Si no se puede contactar a Stripe, el depósito falla con
+`503 PAYMENT_PROVIDER_UNAVAILABLE`.
 
-To try Stripe locally with test keys and the [Stripe CLI](https://docs.stripe.com/stripe-cli):
+Para probar Stripe en local con llaves de prueba y el [Stripe CLI](https://docs.stripe.com/stripe-cli):
 
 ```bash
 stripe listen --forward-to localhost:8080/api/v1/payments/webhooks/stripe
 ```
 
-Then start the app with `PAYMENT_PROVIDER=stripe`, `STRIPE_API_KEY=sk_test_...` and `STRIPE_WEBHOOK_SECRET` set to
-the `whsec_...` value the command printed, open the `checkoutUrl` of a deposit and pay with card `4242 4242 4242 4242`.
+Luego arranca la app con `PAYMENT_PROVIDER=stripe`, `STRIPE_API_KEY=sk_test_...` y `STRIPE_WEBHOOK_SECRET` con el valor
+`whsec_...` que imprimió el comando, abre el `checkoutUrl` de un depósito y paga con la tarjeta `4242 4242 4242 4242`.
 
-### Withdrawals
+### Retiros
 
-The money leaves the wallet as soon as a withdrawal is requested and waits in a payouts-in-transit account until the
-bank confirms the payout. The answer is `201` with `"status": "PAID"` when the payout is already confirmed (always,
-with the simulated provider) or `202` with `"status": "PENDING"` while it is on its way. If the bank refuses the
-payout, the withdrawal becomes `FAILED` with a `failureReason`, the money goes back to the wallet (statement type
-`WITHDRAWAL_REVERSAL`) and the user is notified. A job sends again every minute the payouts the provider never
-received and checks the ones on their way. The `PayoutStuck` alert fires when one has waited for over 30 minutes.
+El dinero sale de la billetera en cuanto se pide un retiro y espera en una cuenta de pagos en tránsito hasta que el
+banco confirma el pago. La respuesta es `201` con `"status": "PAID"` cuando el pago ya está confirmado (siempre, con el
+proveedor simulado) o `202` con `"status": "PENDING"` mientras va en camino. Si el banco rechaza el pago, el retiro
+pasa a `FAILED` con un `failureReason`, el dinero regresa a la billetera (movimiento de tipo `WITHDRAWAL_REVERSAL`) y
+se avisa al usuario. Un proceso reenvía cada minuto los pagos que el proveedor nunca recibió y revisa los que van en
+camino. La alerta `PayoutStuck` se dispara cuando uno lleva más de 30 minutos esperando.
 
-A bank account receives no withdrawals during its first 24 hours (`wallet.accounts.bank-account-cooling-off`):
-someone who took over an account cannot add their own CLABE and empty the wallet before the owner reads the
-"Bank account added" email. Withdrawals to it answer `422 BANK_ACCOUNT_COOLING_OFF` until then, and each bank
-account shows `withdrawalsAvailableFrom`.
+#### Pagos SPEI con STP
 
-### Where the money is
+Con `PAYOUT_PROVIDER=stp`, los retiros en MXN se pagan por SPEI a través de STP. Cada uno se registra como una orden
+(SpeiWS `ordenPago/registra`), firmada con la llave RSA de la plataforma (SHA-256 sobre la "cadena original" de STP), y
+el proceso de pagos lee su estado por clave de rastreo cada minuto (EFWS `consultaOrden`): `LQ` paga el retiro; `D`
+(devuelto por el banco receptor), `CN` o un rechazo (`RB` de Banxico, `RL`, `RA`, `CL`, `CA`, `EL`, `RE`) lo hace fallar
+con `failureReason` `STP_RETURNED_<estado>_<causa>`; y una orden que STP rechaza falla al momento con
+`STP_REJECTED_<código>`. En cualquier caso, el dinero regresa a la billetera. Una respuesta que no es un rechazo del
+pago (id `0`: sin respuesta, una firma inválida o un campo faltante; `-1`: una clave de rastreo que STP ya tiene donde
+la consulta no llega) lo deja pendiente, así que se reenvía y se dispara la alerta de atorado, pero nunca se paga dos
+veces.
 
-The ledger follows the money to where it really sits, with these system accounts per currency:
+La clave de rastreo (`BDW` + el día en que se pidió el retiro + 20 caracteres de su id, 29 en total) es la misma en
+cada intento. Antes de registrar una orden, y cada vez que STP rechaza una, la orden se busca en ese día y en los
+siguientes (`lookup-days`, 4 por defecto), así que un pago cuya respuesta se perdió se sigue en lugar de pagarse dos
+veces. El banco receptor sale de los primeros tres dígitos de la CLABE (`40` + código para bancos, `37` para la banca
+de desarrollo, `90` para otros participantes). Los nombres y el concepto van sin acentos ni símbolos, en hasta 39
+caracteres.
 
-| Account | Type | Holds |
+STP solo paga MXN, así que con `stp` una billetera en otra moneda no puede retirar: `GET /api/v1/withdrawals/currencies`
+lista las que sí pueden (la app oculta **Retirar** en las demás), y un retiro desde otra responde
+`422 WITHDRAWAL_CURRENCY_NOT_SUPPORTED` antes de que salga dinero de la billetera.
+
+| Configuración | Qué es |
+|---|---|
+| `STP_COMPANY` | El nombre de la empresa de la plataforma en STP (`empresa`) |
+| `STP_ACCOUNT` | La CLABE de 18 dígitos de la plataforma en STP, desde la que se pagan los retiros |
+| `STP_ACCOUNT_HOLDER`, `STP_ACCOUNT_HOLDER_RFC` | A nombre de quién está esa cuenta, dato que llega al banco receptor |
+| `STP_PRIVATE_KEY` | La llave PEM cuyo certificado tiene STP, PKCS#8 sin cifrar (`openssl pkcs8 -topk8 -nocrypt -in key.pem`) |
+| `STP_ORDERS_URL`, `STP_QUERY_URL` | El demo de STP por defecto fuera de producción; obligatorias en producción (STP las entrega con la cuenta) |
+
+Los 34 campos firmados, su orden, las longitudes y los códigos de estado coinciden con la documentación de SpeiWS de STP
+tal como la implementan los clientes públicos de STP (stpmex para Python, go-stp). Las pruebas corren contra `FakeStp`,
+que revisa cada firma. Antes de salir a producción, confírmalos con STP mismo: `StpSandboxCheck` envía una orden real de
+1.00 MXN al demo de STP con las credenciales de la cuenta y la vuelve a leer. Nunca corre en el build:
+
+```bash
+STP_SANDBOX_CHECK=true STP_COMPANY=... STP_ACCOUNT=... STP_ACCOUNT_HOLDER=... STP_ACCOUNT_HOLDER_RFC=...   STP_PRIVATE_KEY_FILE=/path/key.pem STP_SANDBOX_CLABE=...   ./mvnw test -Dtest=StpSandboxCheck -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Pasa cuando STP acepta la orden; su salida dice lo que STP responde sobre ella. Si STP acepta la orden pero la consulta
+nunca la encuentra, revisa con STP `STP_QUERY_URL` y los campos de la consulta.
+
+#### Pagos con Openpay
+
+Con `PAYOUT_PROVIDER=openpay`, los retiros en MXN se pagan a la CLABE a través de Openpay (BBVA): `POST
+/v1/{merchant}/payouts` con `method: bank_account`, autenticado con la llave privada como usuario de HTTP Basic. A
+diferencia de STP, su sandbox es gratis y no necesita empresa: regístrate en `sandbox-dashboard.openpay.mx` con un
+nombre de proyecto, y el id del comercio y la llave privada (`sk_...`) están en el panel.
+
+Cada pago lleva el id del retiro como su `order_id`, que Openpay acepta una sola vez (`409`, error 1006): un intento
+cuya respuesta se perdió encuentra el pago ya hecho en lugar de pagar dos veces. El proceso de pagos lo lee por id:
+`completed` paga el retiro, `failed` lo hace fallar (`OPENPAY_FAILED`) y devuelve el dinero. Un pago que Openpay
+rechaza falla al momento (`OPENPAY_REJECTED_<código>`, por ejemplo 1007 cuando la cuenta bancaria no lo acepta). Uno
+que solo tiene que esperar se queda pendiente y se reenvía: Openpay caído, llaves incorrectas (1002), pagos no
+habilitados para el comercio (3006) o saldo insuficiente de la plataforma en Openpay (4001). Openpay solo paga pesos,
+así que las billeteras en dólares no pueden retirar con él, igual que con STP.
+
+| Configuración | Qué es |
+|---|---|
+| `OPENPAY_MERCHANT_ID` | El id del comercio, en el panel |
+| `OPENPAY_PRIVATE_KEY` | La llave privada (`sk_...`); la pública se rechaza al arrancar |
+| `OPENPAY_URL` | El sandbox (`https://sandbox-api.openpay.mx`) por defecto fuera de producción; obligatoria en producción (`https://api.openpay.mx`) |
+
+La petición y sus estados siguen la referencia de la API de Openpay y sus SDK oficiales. Las pruebas corren contra
+`FakeOpenpay`. `OpenpaySandboxCheck` lo confirma contra el sandbox real: envía un pago de 1.00 MXN, lo vuelve a enviar
+para ver que el `order_id` se acepta una sola vez, y lo vuelve a leer. Nunca corre en el build:
+
+```bash
+OPENPAY_SANDBOX_CHECK=true OPENPAY_MERCHANT_ID=... OPENPAY_PRIVATE_KEY=sk_... \
+  ./mvnw test -Dtest=OpenpaySandboxCheck -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Si dice que la cuenta no tiene saldo (4001), primero haz un cargo de prueba con tarjeta en el panel del sandbox. Una
+cuenta de sandbox nueva responde 3006 ("Not authorized to generate payments") hasta que el soporte de Openpay habilita
+los pagos para el comercio; con el proveedor en `openpay`, hasta entonces los retiros se quedan pendientes en lugar de
+fallar.
+
+Una cuenta bancaria no recibe retiros durante sus primeras 24 horas (`wallet.accounts.bank-account-cooling-off`):
+alguien que tomó el control de una cuenta no puede agregar su propia CLABE y vaciar la billetera antes de que el dueño
+lea el correo de "Cuenta bancaria agregada". Hasta entonces, los retiros a ella responden
+`422 BANK_ACCOUNT_COOLING_OFF`, y cada cuenta bancaria muestra `withdrawalsAvailableFrom`.
+
+### Dónde está el dinero
+
+El libro mayor sigue al dinero hasta donde realmente está, con estas cuentas del sistema por moneda:
+
+| Cuenta | Tipo | Contiene |
 |---|---|---|
-| `SETTLEMENT` | asset | The platform's money at the partner bank; withdrawals are paid from it |
-| `PROVIDER_CLEARING` | asset | Money Stripe collected and has not paid out to the bank yet |
-| `UNAPPLIED_PAYMENTS` | liability | Money collected from a payer that no wallet has received yet, or that is being refunded |
-| `PAYOUTS_IN_TRANSIT` | liability | Money taken from wallets for payouts the bank has not confirmed |
-| `PROVIDER_FEES` | expense | What Stripe charged |
-| `PLATFORM_CAPITAL` | equity | What the owners put into `SETTLEMENT` |
+| `SETTLEMENT` | activo | El dinero de la plataforma en el banco socio; de ahí se pagan los retiros |
+| `PROVIDER_CLEARING` | activo | El dinero que Stripe cobró y todavía no ha depositado al banco |
+| `UNAPPLIED_PAYMENTS` | pasivo | El dinero cobrado a un pagador que ninguna billetera ha recibido todavía, o que se está reembolsando |
+| `PAYOUTS_IN_TRANSIT` | pasivo | El dinero tomado de las billeteras para pagos que el banco no ha confirmado |
+| `PROVIDER_FEES` | gasto | Lo que cobró Stripe |
+| `PLATFORM_CAPITAL` | capital | Lo que los dueños pusieron en `SETTLEMENT` |
 
-A payment that succeeds is recorded at once (`PAYMENT_RECEIVED`: into `PROVIDER_CLEARING`, or straight into
-`SETTLEMENT` with the simulated provider, against `UNAPPLIED_PAYMENTS`); the deposit then moves it to the wallet, and
-a refund sends it back (`PAYMENT_REFUNDED`). Every 15 minutes a job reads Stripe's balance transactions and records
-what is new: fees (`PROVIDER_FEE`), payouts to the bank (`PROVIDER_PAYOUT`, from clearing to settlement) and failed
-payouts. Charges and refunds the application caused are only recognised; anything else (disputes, adjustments,
-refunds made from Stripe's dashboard) is left unmatched for a person. Afterwards the job compares Stripe's balance
-with `PROVIDER_CLEARING`: the gap is the `wallet_provider_balance_difference` metric, and the
-`ProviderBalanceMismatch` alert fires when it stays off for two hours.
+Un pago exitoso se registra al momento (`PAYMENT_RECEIVED`: en `PROVIDER_CLEARING`, o directo en `SETTLEMENT` con el
+proveedor simulado, contra `UNAPPLIED_PAYMENTS`); luego el depósito lo mueve a la billetera, y un reembolso lo
+devuelve (`PAYMENT_REFUNDED`). Cada 15 minutos un proceso lee las transacciones de saldo de Stripe y registra lo nuevo:
+comisiones (`PROVIDER_FEE`), depósitos al banco (`PROVIDER_PAYOUT`, de clearing a settlement) y depósitos fallidos. Los
+cargos y reembolsos que causó la aplicación solo se reconocen; cualquier otra cosa (disputas, ajustes, reembolsos
+hechos desde el panel de Stripe) se deja sin conciliar para que la revise una persona. Después, el proceso compara el
+saldo de Stripe con `PROVIDER_CLEARING`: la diferencia es la métrica `wallet_provider_balance_difference`, y la alerta
+`ProviderBalanceMismatch` se dispara cuando sigue sin cuadrar durante dos horas.
 
-Since Stripe pays out days after collecting, withdrawals are paid from capital in the meantime: an administrator
-records each wire the owners send to the partner bank as a capital contribution. A payout the bank confirms while
-`SETTLEMENT` cannot cover it stays `PENDING` and is recorded once capital or Stripe's payouts arrive. Likewise, a
-refund larger than what `PROVIDER_CLEARING` holds (Stripe already paid that money out) is recorded against
-`SETTLEMENT`, since Stripe then takes it from the bank account.
+Como Stripe deposita días después de cobrar, mientras tanto los retiros se pagan con capital: un administrador
+registra cada transferencia que los dueños envían al banco socio como una aportación de capital. Un pago que el banco
+confirma mientras `SETTLEMENT` no alcanza a cubrirlo se queda `PENDING` y se registra cuando llega capital o los
+depósitos de Stripe. Del mismo modo, un reembolso mayor a lo que tiene `PROVIDER_CLEARING` (Stripe ya depositó ese
+dinero) se registra contra `SETTLEMENT`, porque entonces Stripe lo toma de la cuenta bancaria.
 
-## Transfers
+## Transferencias
 
 ```http
 POST /api/v1/transfers
 Authorization: Bearer <accessToken>
 Idempotency-Key: 6f1c2a9e-3b7d-4c55-9a0e-2f8b1d4c7e10
 
-{"sourceWalletId": "...", "recipientEmail": "bob@example.com", "amount": 30.25, "description": "Dinner"}
+{"sourceWalletId": "...", "recipientEmail": "bob@example.com", "amount": 30.25, "description": "Cena"}
 ```
 
-The recipient receives into their wallet in the sender's currency. `GET /api/v1/transfers/{id}` returns a transfer
-to its sender or its recipient (`direction` is `SENT` or `RECEIVED`, with both names), and both statements show it
-with the transfer id as `operationId`.
+El destinatario recibe en su billetera de la moneda de quien envía. `GET /api/v1/transfers/{id}` devuelve una
+transferencia a quien la envió o a quien la recibió (`direction` es `SENT` o `RECEIVED`, con ambos nombres), y los
+movimientos de los dos la muestran con el id de la transferencia como `operationId`.
 
-| Method | Path | Description |
+| Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/v1/transfers/recipients?limit=8` | People you paid, most recently paid first (1 to 20), with how many times |
-| GET | `/api/v1/transfers/recipient?email=&currency=MXN` | Who an email belongs to before sending, as a short name (`Ana M. L.`); `422 RECIPIENT_NOT_FOUND` if nobody with that email can receive in the currency. Limited to 20 lookups per minute per user |
+| GET | `/api/v1/transfers/recipients?limit=8` | Personas a las que pagaste, las más recientes primero (de 1 a 20), con cuántas veces |
+| GET | `/api/v1/transfers/recipient?email=&currency=MXN` | De quién es un correo antes de enviar, como nombre corto (`Ana M. L.`); `422 RECIPIENT_NOT_FOUND` si nadie con ese correo puede recibir en esa moneda. Limitado a 20 consultas por minuto por usuario |
 
-Every request that moves money needs an `Idempotency-Key` (use a new UUID per user action):
+Cada petición que mueve dinero necesita un `Idempotency-Key` (usa un UUID nuevo por cada acción del usuario):
 
-| Situation | Response |
+| Situación | Respuesta |
 |---|---|
-| First request | `201`, `Idempotent-Replayed: false` |
-| Retry with the same key and body, even concurrent | Same `201` body, `Idempotent-Replayed: true`; money moves once |
-| Same key, different body | `422 IDEMPOTENCY_KEY_REUSED` |
-| Request failed (e.g. `INSUFFICIENT_FUNDS`) | Nothing is stored; the key can be retried |
+| Primera petición | `201`, `Idempotent-Replayed: false` |
+| Reintento con la misma llave y el mismo cuerpo, aunque sea simultáneo | El mismo cuerpo `201`, `Idempotent-Replayed: true`; el dinero se mueve una vez |
+| Misma llave, cuerpo distinto | `422 IDEMPOTENCY_KEY_REUSED` |
+| La petición falló (por ejemplo, `INSUFFICIENT_FUNDS`) | No se guarda nada; la llave se puede reintentar |
 
-## Limits and administration
+## Límites y administración
 
-- **Daily limit:** withdrawals and transfers sent share a limit per wallet and local day (Mexico City time):
-  50,000.00 MXN and 3,000.00 USD by default (`wallet.accounts.daily-outgoing-limit`). Going over it returns
-  `422 DAILY_LIMIT_EXCEEDED` with what is left for today. Deposits are not limited.
-- **Administrator:** created at startup from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (dev profile:
-  `admin@wallet.local` / `admin-dev-password`). An existing user with that email is never promoted.
-  Before using the admin endpoints it sets up two-factor authentication like any user (`/api/v1/users/me/two-factor`)
-  and signs in again with a code.
+- **Límite diario:** los retiros y las transferencias enviadas comparten un límite por billetera y por día local (hora
+  de la Ciudad de México): 50,000.00 MXN y 3,000.00 USD por defecto (`wallet.accounts.daily-outgoing-limit`).
+  Pasarlo devuelve `422 DAILY_LIMIT_EXCEEDED` con lo que queda para hoy. Los depósitos no tienen límite.
+- **Administrador:** se crea al arrancar a partir de `ADMIN_EMAIL` y `ADMIN_PASSWORD` (perfil dev:
+  `admin@wallet.local` / `admin-dev-password`). Un usuario existente con ese correo nunca se promueve.
+  Antes de usar los endpoints de administración, configura el doble factor como cualquier usuario
+  (`/api/v1/users/me/two-factor`) y vuelve a iniciar sesión con un código.
 
-| Method | Path | Description |
+| Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/api/v1/admin/users/search` | Find a user by email (`{"email": "..."}`): status, verification, lockout |
-| GET | `/api/v1/admin/users/{id}` | The same, by user id |
-| GET | `/api/v1/admin/users/{id}/wallets` | The user's wallets with balance and status |
-| POST | `/api/v1/admin/users/{id}/unlock` | Lift a lockout before it expires (`{"reason": "..."}`, required) |
-| POST | `/api/v1/admin/users/{id}/disable` | Block login and every money movement, end all sessions (`{"reason": "..."}`, required) |
-| POST | `/api/v1/admin/users/{id}/enable` | Allow them again (`{"reason": "..."}`) |
-| POST | `/api/v1/admin/users/{id}/two-factor/reset` | Turn off two-factor authentication for a lost phone (`{"reason": "..."}`) |
-| GET | `/api/v1/admin/wallets/{id}` | Any wallet with owner, balance and status |
-| POST | `/api/v1/admin/wallets/{id}/freeze` | Block all money movement (`{"reason": "..."}`, required) |
-| POST | `/api/v1/admin/wallets/{id}/unfreeze` | Allow it again (`{"reason": "..."}`) |
-| GET | `/api/v1/admin/transfers/{id}`, `/deposits/{id}`, `/withdrawals/{id}` | Any operation, with its ledger entry |
-| GET | `/api/v1/admin/audit-events?targetId=&actorId=&action=&from=&to=&page=&size=` | Audit log, newest first; `from` and `to` are instants, `to` excluded |
-| GET | `/api/v1/admin/ledger/system-accounts` | Balances of the platform's own accounts, in minor units |
-| POST | `/api/v1/admin/ledger/capital-contributions` | Record capital wired into settlement (`{"currency", "amount", "reference", "reason"}`); each bank `reference` once (`409 CAPITAL_CONTRIBUTION_EXISTS`) |
-| GET | `/api/v1/admin/payments/provider-transactions?status=&limit=50` | Stripe balance movements, newest first; every status, or one of `PENDING`, `POSTED`, `UNMATCHED`, `RESOLVED` |
-| POST | `/api/v1/admin/payments/provider-transactions/{provider}/{id}/resolve` | Close an unmatched movement (`{"reason": "..."}`, required); audited, posts nothing |
-| GET | `/api/v1/admin/payments/provider-balance-differences` | The provider in use, whether it holds money, and per currency its balance against `PROVIDER_CLEARING` as of the last sync |
+| POST | `/api/v1/admin/users` | Crea un administrador o agente de soporte (`{"email", "fullName", "role", "reason"}`). Su dueño recibe por correo su rol, su dirección y una contraseña generada, que nadie más ve y que no se guarda sin hash. Hasta que la reemplaza, `mustChangePassword` es true y todo excepto `GET /api/v1/users/me`, `PUT /api/v1/users/me/language`, `POST /api/v1/users/me/password` y `/api/v1/auth/*` responde `403 PASSWORD_CHANGE_REQUIRED`. `POST /api/v1/auth/password-reset` sigue funcionando si se pierde ese correo |
+| GET | `/api/v1/admin/users/signups?days=30` | Clientes que se registraron cada día, hasta 180 días; los días sin nadie no tienen fila |
+| GET | `/api/v1/admin/operations/daily?days=30` | Transferencias, depósitos y retiros terminados por día, tipo y moneda, hasta 180 días; los días sin nada no tienen fila |
+| GET | `/api/v1/admin/ledger/customer-balances` | Todo el dinero de los clientes por moneda, en unidades mínimas |
+| POST | `/api/v1/admin/users/search` | Busca un usuario por correo (`{"email": "..."}`): estado, verificación, bloqueo |
+| POST | `/api/v1/admin/users/suggestions` | Vista previa mientras el administrador escribe (`{"text": "..."}`, 2 caracteres o más): hasta 6 usuarios cuyo correo o nombre lo contiene, o cuyo id empieza con él |
+| GET | `/api/v1/admin/operations/suggestions` | Hasta 6 transferencias, depósitos y retiros cuyo id empieza con `q`, los más recientes primero; `kind` lo limita a uno |
+| GET | `/api/v1/admin/wallets/suggestions` | Hasta 6 billeteras cuyo id empieza con `q`, las más recientes primero |
+| GET | `/api/v1/admin/users/{id}` | Lo mismo, por id de usuario |
+| GET | `/api/v1/admin/users/{id}/wallets` | Las billeteras del usuario con saldo y estado |
+| POST | `/api/v1/admin/users/{id}/unlock` | Quita un bloqueo antes de que expire (`{"reason": "..."}`, obligatorio) |
+| POST | `/api/v1/admin/users/{id}/disable` | Bloquea el inicio de sesión y todo movimiento de dinero, cierra todas las sesiones (`{"reason": "..."}`, obligatorio) |
+| POST | `/api/v1/admin/users/{id}/enable` | Los vuelve a permitir (`{"reason": "..."}`) |
+| POST | `/api/v1/admin/users/{id}/two-factor/reset` | Desactiva el doble factor por un teléfono perdido (`{"reason": "..."}`) |
+| GET | `/api/v1/admin/wallets/{id}` | Cualquier billetera con dueño, saldo y estado |
+| POST | `/api/v1/admin/wallets/{id}/freeze` | Bloquea todo movimiento de dinero (`{"reason": "..."}`, obligatorio) |
+| POST | `/api/v1/admin/wallets/{id}/unfreeze` | Lo vuelve a permitir (`{"reason": "..."}`) |
+| GET | `/api/v1/admin/transfers/{id}`, `/deposits/{id}`, `/withdrawals/{id}` | Cualquier operación, con su asiento en el libro mayor |
+| GET | `/api/v1/admin/audit-events?targetId=&actorId=&action=&from=&to=&page=&size=` | Bitácora de auditoría, lo más reciente primero; `from` y `to` son instantes, `to` excluido |
+| POST | `/api/v1/admin/adjustments` | Abona o carga a mano una billetera, con un motivo y opcionalmente un ticket (`{"walletId", "direction", "amount", "reason", "ticketId"}`). Hasta `adjustment-single-approval-up-to` se aplica al momento; por encima, espera a un segundo administrador |
+| GET | `/api/v1/admin/adjustments?status=&ticketId=&page=0&size=20`, `/api/v1/admin/adjustments/{id}` | Los ajustes, y cuántos esperan aprobación |
+| POST | `/api/v1/admin/adjustments/{id}/approve` | Un segundo administrador lo aplica; quien lo pidió recibe `ADJUSTMENT_SELF_APPROVAL` |
+| POST | `/api/v1/admin/adjustments/{id}/reject` | Lo rechaza con un motivo; quien lo pidió puede retirarlo de esta forma |
+| GET | `/api/v1/admin/ledger/system-accounts` | Saldos de las cuentas propias de la plataforma, en unidades mínimas |
+| POST | `/api/v1/admin/ledger/capital-contributions` | Registra capital transferido a settlement (`{"currency", "amount", "reference", "reason"}`); cada `reference` bancaria una vez (`409 CAPITAL_CONTRIBUTION_EXISTS`) |
+| GET | `/api/v1/admin/payments/provider-transactions?status=&limit=50` | Movimientos de saldo de Stripe, los más recientes primero; todos los estados, o uno de `PENDING`, `POSTED`, `UNMATCHED`, `RESOLVED` |
+| POST | `/api/v1/admin/payments/provider-transactions/{provider}/{id}/resolve` | Cierra un movimiento sin conciliar (`{"reason": "..."}`, obligatorio); queda en la auditoría y no registra nada en el libro mayor |
+| GET | `/api/v1/admin/payments/provider-balance-differences` | El proveedor en uso, si guarda dinero, y por moneda su saldo frente a `PROVIDER_CLEARING` según la última sincronización |
 
-Every `/api/v1/admin/**` endpoint requires the `ADMIN` role (`403 FORBIDDEN` otherwise) and, outside tests, an
-administrator with two-factor authentication on. Registrations, email
-verifications, password changes and reset requests, lockouts and unlocks, account and wallet status changes and every
-money movement are written to an append-only audit log through Spring Modulith's event outbox, so no entry is lost
-even if the app crashes right after an operation.
+Todos los endpoints `/api/v1/admin/**` requieren el rol `ADMIN` (si no, `403 FORBIDDEN`) y, fuera de las pruebas, un
+administrador con doble factor activo. Los registros, las verificaciones de correo, los cambios de contraseña y las
+solicitudes de restablecimiento, los bloqueos y desbloqueos, los cambios de estado de cuentas y billeteras y cada
+movimiento de dinero se escriben en una bitácora de auditoría de solo inserción a través del outbox de eventos de
+Spring Modulith, así que no se pierde ninguna entrada aunque la app se caiga justo después de una operación.
 
-A disabled account answers `403 ACCOUNT_DISABLED` on login, and its refresh tokens stop working. Access tokens issued
-before stay valid for reads until they expire (at most 15 minutes), but every deposit, withdrawal or transfer checks
-the account under a lock, so none goes through after the disable commits. The administrator account cannot be
-disabled.
+Una cuenta deshabilitada responde `403 ACCOUNT_DISABLED` al iniciar sesión, y sus tokens de renovación dejan de
+funcionar. Los tokens de acceso emitidos antes siguen sirviendo para lecturas hasta que expiran (15 minutos como
+máximo), pero cada depósito, retiro o transferencia revisa la cuenta con un bloqueo, así que ninguno pasa después de
+que se confirma la deshabilitación. La cuenta del administrador no se puede deshabilitar.
 
-## Notifications
+## Chat de soporte
 
-| Method | Path | Description |
+Un usuario escribe a `/api/v1/support/conversation/messages` y el bot responde desde los archivos Markdown de
+`src/main/resources/support/knowledge/<idioma>/`, en el idioma del usuario. No hay IA y nada sale de la app: compara
+palabras, sin importar mayúsculas, acentos, terminaciones ni errores de tecleo, y les da peso: una palabra de la que
+tratan pocas secciones cuenta más, y una frase clave encontrada completa cuenta todavía más. Solo responde cuando una
+sección gana claramente, y si no, ofrece las más cercanas. Las palabras que significan lo mismo van en
+`reply: synonyms`, como `dinero: plata, lana`. Editar lo que sabe es editar esos archivos y desplegar.
+Cada encabezado `##` es una respuesta, escrita como la preguntaría la gente:
+
+```markdown
+## ¿Cuánto tarda un retiro?
+keywords: retiro, sacar, llegar
+escalate: true
+
+El texto de la respuesta.
+```
+
+`keywords` son otras formas de preguntarlo. `escalate: true` además pasa la conversación a una persona, para lo que el
+bot puede explicar pero no resolver, y `small-talk: true` marca los saludos, que no son respuestas a calificar.
+
+Soporte es para problemas, y las preguntas sobre la app son para el bot, así que lo que hace sin una respuesta depende de
+lo que se escribió. Lo que no puede leer ("k", "asdf", una sola palabra desconocida) pide que se escriba de nuevo
+(`reply: unclear`), y una palabra que no puede leer entre otras que sí se ignora. Cuando solo coincide parte de un
+mensaje, el mensaje lleva `suggestions`, los títulos de hasta 3 secciones, y el texto de `reply: suggestions`; enviar un
+título como mensaje da esa sección. Una oración que puede leer pero de la que no sabe nada recibe el texto de
+`reply: not-found`, que pide decirlo de otra forma. Cada idioma necesita los tres, o la app no arranca.
+
+Una conversación pasa a una persona cuando un mensaje usa una de las palabras clave de `reply: not-found` ("problema",
+"queja"), cuando el bot sigue sin saber después de pedir que se diga de otra forma, cuando el usuario lo pide o dice
+que la respuesta no le ayudó, o cuando envía un archivo. Va a un usuario `SUPPORT` activo sin otro caso, el que lleve
+más tiempo esperando, o si no, espera en la cola hasta que uno se libere. El agente recibe una notificación que abre el
+caso con todo lo dicho hasta entonces. La base de datos misma mantiene una conversación abierta por usuario y un caso
+activo por agente. Los casos regresan a la cola si su agente se deshabilita o deja de serlo.
+
+Un caso cuyos mensajes antes de llegar a la cola hablan de dinero (un depósito, retiro, cargo, saldo, SPEI, reembolso,
+fraude…, en cualquiera de los dos idiomas) tiene prioridad `HIGH` y va antes que los demás; dentro de una prioridad, va
+primero quien lleva más tiempo esperando. Un agente puede pausar los casos nuevos y conservar el que está atendiendo
+(`availability`). A un cliente que deja de responderle al agente se le avisa después de
+`wallet.support.inactivity.warn-after` (15 minutos) que el caso se cerrará, y se cierra como `NO_REPLY` después de
+otros `close-after` (15 minutos) si sigue sin decir nada, lo que libera al agente.
+
+Un agente cierra un caso con un motivo: `SOLVED`, `INFORMATION`, `TICKET`, `NO_REPLY`, `DUPLICATE` u `OTHER` (`SOLVED`
+si no da ninguno); uno que cierra el cliente queda como `CUSTOMER_CLOSED`. Mientras lo atiende, ve los casos anteriores
+del cliente y deja notas para el equipo, que el cliente nunca ve. Cuando respondió algo que debió responder el bot, le
+sugiere la pregunta y la respuesta a los administradores, que la agregan a los archivos de conocimiento y la marcan
+`ADDED`, o `DISMISSED`. Los administradores también ven dónde falló el bot: `NOT_HELPED` (el usuario dijo que la
+respuesta no le ayudó), `NOT_FOUND`, `SUGGESTED` (solo ofreció secciones cercanas) y, solo si se pide, `ASKED_AGAIN`
+(lo que no pudo leer), con la misma pregunta contada una vez y las más repetidas primero.
+
+Lo que un agente escala se sigue en su propia lista, desde cualquiera de sus casos, y tanto el cliente como ese agente
+reciben un aviso cuando un administrador lo resuelve.
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/api/v1/support/conversation` | La conversación abierta, o la cerrada que espera su encuesta; `204` si no hay ninguna |
+| POST | `/api/v1/support/conversation/messages` | `{"text": "..."}`, hasta 2,000 caracteres; empieza una conversación si hace falta |
+| POST | `/api/v1/support/conversation/attachments` | `file` multipart y `text` opcional: JPEG, PNG, WebP, PDF o MP4 de hasta 20 MB, revisado por sus bytes |
+| POST | `/api/v1/support/conversation/escalate` | Pide una persona |
+| POST | `/api/v1/support/conversation/close` | La cierra; si la atendió un agente, la respuesta la deja esperando su encuesta |
+| POST | `/api/v1/support/conversation/survey` | `{"score": 5, "comment": "..."}`, de 1 a 5 |
+| GET | `/api/v1/support/attachments/{id}` | Descarga un archivo de una conversación en la que participas |
+| GET | `/api/v1/support/agent/summary` | `SUPPORT`: el caso que se está atendiendo, si te llegan casos nuevos, y la cola (cuántos esperan, cuántos son urgentes, la espera más larga) |
+| PUT | `/api/v1/support/agent/availability` | `SUPPORT`: `{"available": false}` pausa los casos nuevos y conserva el que se está atendiendo; `true` los vuelve a tomar |
+| GET | `/api/v1/support/agent/metrics?days=30` | `SUPPORT`: cómo te fue con los casos que recibiste en los últimos `days` (de 1 a 365): casos, cerrados, tiempo a la primera respuesta y al cierre, encuestas y su promedio |
+| GET | `/api/v1/support/agent/conversations?status=&q=&page=0&size=20` | `SUPPORT`: tus casos, el abierto primero; `status` `ASSIGNED` o `RESOLVED`, `q` el nombre del cliente o el folio |
+| GET | `/api/v1/support/agent/conversations/{id}` | `SUPPORT`: uno de tus casos, incluida la parte del bot. Los agentes ven el nombre del usuario, no su correo ni su dinero |
+| POST | `/api/v1/support/agent/conversations/{id}/messages` | `SUPPORT`: responde |
+| POST | `/api/v1/support/agent/conversations/{id}/attachments` | `SUPPORT`: envía un archivo |
+| POST | `/api/v1/support/agent/conversations/{id}/resolve` | `SUPPORT`: lo cierra con un motivo (`{"reason": "INFORMATION"}`, opcional), le pide la encuesta al usuario y toma el siguiente de la cola |
+| GET | `/api/v1/support/agent/conversations/{id}/history` | `SUPPORT`: los casos anteriores del cliente con personas, el más reciente primero |
+| GET, POST | `/api/v1/support/agent/conversations/{id}/notes` | `SUPPORT`: las notas del equipo sobre el caso, y agregar una (`{"text": "..."}`, hasta 1,000 caracteres) |
+| POST | `/api/v1/support/agent/conversations/{id}/bot-suggestions` | `SUPPORT`: propone que el bot responda una pregunta por sí mismo (`{"question", "answer"}`), en el idioma del cliente |
+| GET | `/api/v1/support/agent/conversations/{id}/customer` | `SUPPORT`: la situación del cliente, incluida la verificación de identidad |
+| GET | `/api/v1/support/agent/conversations/{id}/operations`, `/tickets` | `SUPPORT`: las últimas operaciones del cliente, y los tickets del caso |
+| POST | `/api/v1/support/agent/conversations/{id}/tickets` | `SUPPORT`: pasa un problema a los administradores, sobre una operación o no (`category`: `OPERATION`, `ACCOUNT_ACCESS`, `IDENTITY`, `OTHER`) |
+| POST | `/api/v1/support/agent/conversations/{id}/release` | `SUPPORT`: devuelve el caso a la cola |
+| POST | `/api/v1/support/agent/conversations/{id}/transfer` | `SUPPORT`: lo pasa a un compañero libre (`{"agentId": "..."}`) |
+| GET | `/api/v1/support/agent/colleagues` | `SUPPORT`: a quién se le puede pasar |
+| GET | `/api/v1/support/agent/tickets?status=&page=0&size=20` | `SUPPORT`: lo que escalaste desde cualquiera de tus casos, los abiertos del más antiguo al más nuevo, con el nombre del cliente y cuántos están abiertos; `status` `OPEN` o `RESOLVED` |
+| GET, POST | `/api/v1/support/agent/replies` | `SUPPORT`: las respuestas guardadas, y guardar otra |
+| DELETE | `/api/v1/support/agent/replies/{id}` | `SUPPORT`: borra una |
+| GET | `/api/v1/admin/support/tickets?status=&page=0&size=20`, `/api/v1/admin/support/tickets/{id}` | Lo que pasaron los agentes, y cuántos están abiertos |
+| POST | `/api/v1/admin/support/tickets/{id}/resolve` | Cierra uno con lo que se hizo |
+| GET | `/api/v1/admin/support/summary` | Conversaciones por estado, la cola, cómo terminaron (por motivo) y la calificación promedio de las encuestas |
+| GET | `/api/v1/admin/support/conversations?status=&q=&page=0&size=20` | Las que llegaron a una persona o a la cola, las más recientes primero; `q` el nombre o correo de un cliente, o un folio |
+| GET | `/api/v1/admin/support/conversations/{id}` | Una de ellas con su encuesta |
+| GET | `/api/v1/admin/support/agents?days=30` | Cada agente activo y cómo le fue con los casos que recibió en los últimos `days` |
+| GET | `/api/v1/admin/support/bot/summary?days=30` | Lo que hizo el bot con las preguntas de los últimos `days` |
+| GET | `/api/v1/admin/support/bot/misses?kind=&language=&days=30&page=0&size=20` | Las preguntas en las que falló, las más repetidas primero (`kind` y `language` opcionales) |
+| GET | `/api/v1/admin/support/bot/suggestions?status=` | Las sugerencias de los agentes, las abiertas de la más antigua a la más nueva (`OPEN`, `ADDED` o `DISMISSED`) |
+| POST | `/api/v1/admin/support/bot/suggestions/{id}/review` | `{"status": "ADDED"}` o `DISMISSED` |
+| POST | `/api/v1/admin/users/{id}/role` | `{"role": "SUPPORT", "reason": "..."}` o `USER`; cierra las sesiones de la cuenta y queda en la auditoría |
+
+## Notificaciones
+
+| Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/v1/notifications?unreadOnly=false&page=0&size=20` | Your notifications, newest first |
-| GET | `/api/v1/notifications/unread-count` | `{"count": 3}`, cheap enough to poll for a badge |
-| POST | `/api/v1/notifications/{id}/read` | Mark one as read (`204`); repeating it keeps the first read time |
-| POST | `/api/v1/notifications/read-all` | Mark all as read (`204`) |
-| GET | `/api/v1/notifications/preferences` | Which notices also arrive by email: `emailMoneyIn`, `emailMoneyOut` (both on by default) |
-| PUT | `/api/v1/notifications/preferences` | Change them (`{"emailMoneyIn": true, "emailMoneyOut": false}`) |
-| GET | `/api/v1/notifications/stream` | Server-sent events: `ready` once connected, then `notification` (`{id, type, title}`) as each one arrives. Closes after 5 minutes (reconnect with a current token); a comment every 25 seconds keeps proxies from closing it |
+| GET | `/api/v1/notifications?unreadOnly=false&page=0&size=20` | Tus notificaciones, las más recientes primero |
+| GET | `/api/v1/notifications/unread-count` | `{"count": 3}`, lo bastante barato para consultarlo seguido para un contador |
+| POST | `/api/v1/notifications/{id}/read` | Marca una como leída (`204`); repetirlo conserva la primera hora de lectura |
+| POST | `/api/v1/notifications/read-all` | Marca todas como leídas (`204`) |
+| GET | `/api/v1/notifications/preferences` | Qué avisos llegan también por correo: `emailMoneyIn`, `emailMoneyOut` y `emailSignIns` (todos activos por defecto) |
+| PUT | `/api/v1/notifications/preferences` | Los cambia (`{"emailMoneyIn": true, "emailMoneyOut": false, "emailSignIns": true}`); `emailSignIns` es opcional y, si se omite, conserva su valor |
+| GET | `/api/v1/notifications/stream` | Eventos enviados por el servidor: `ready` al conectarse y luego `notification` (`{id, type, title}`) conforme llega cada una. Se cierra a los 5 minutos (reconecta con un token vigente); un comentario cada 25 segundos evita que los proxies lo cierren |
 
-Users are notified when they register, when failed logins lock their account, when their password is changed or
-reset, when an administrator disables or enables their account, on every deposit, withdrawal and transfer (sent and
-received), when a paid deposit is refunded because the wallet could not receive it, when the bank refuses a
-withdrawal, when two-factor authentication is turned on or off, and when an administrator freezes or unfreezes one
-of their wallets. Each one is also
-emailed, unless the user turned off email for money received (deposits, transfers received) or sent (transfers
-sent, withdrawals); security notices and failed operations are always emailed, and the inbox keeps everything. The
-preference is read when the email is sent, so turning it off also stops emails still waiting in the outbox. The
-stream is per instance: with several instances each one reaches only the apps connected to it, and the others see
-the notification when they next poll. Notifications come from the event outbox like the audit log, so they appear a moment after the operation
-and are never lost; the email is a separate step, so a mail server outage only delays the email. Notifications are
-deleted after 90 days.
+Los usuarios reciben un aviso cuando se registran, cuando los intentos fallidos bloquean su cuenta, cuando se cambia o
+restablece su contraseña, cuando un administrador deshabilita o habilita su cuenta, en cada depósito, retiro y
+transferencia (enviada y recibida), cuando se reembolsa un depósito pagado porque la billetera no pudo recibirlo,
+cuando el banco rechaza un retiro, cuando se activa o desactiva el doble factor, cuando un administrador congela o
+descongela una de sus billeteras, cuando se agrega o borra una cuenta bancaria, cuando cambia su teléfono, cuando un
+administrador quita un bloqueo y cuando se cierran sesiones desde los dispositivos de la cuenta. Soporte tiene los
+suyos: un agente se entera de un caso que se le asigna y de un ticket suyo resuelto; un cliente, de que un agente se
+une o responde, de que el caso se cierra y de que su ticket se resolvió. Cada uno también se envía por correo, salvo
+que el usuario haya apagado el correo para el dinero recibido (depósitos, transferencias recibidas) o enviado
+(transferencias enviadas, retiros); los avisos de seguridad y las operaciones fallidas siempre se envían por correo, y
+la bandeja lo guarda todo. Cada inicio de sesión exitoso también se avisa por correo (su fecha y hora, con un enlace a
+las sesiones en la configuración), pero solo por correo, para que la bandeja no se llene con los propios inicios de
+sesión del usuario; `emailSignIns` lo apaga. La preferencia se lee al enviar el correo, así que apagarla también
+detiene los correos que siguen esperando en el outbox. El flujo es por instancia: con varias instancias, cada una solo
+llega a las apps conectadas a ella, y las demás ven la notificación en su siguiente consulta. Las notificaciones salen
+del outbox de eventos igual que la bitácora de auditoría, así que aparecen un momento después de la operación y nunca
+se pierden; el correo es un paso aparte, así que una caída del servidor de correo solo lo retrasa. Las notificaciones
+se borran a los 90 días.
 
-| Setting | Values |
+Cada correo tiene un diseño según su motivo (`EmailLayout`: tablas y estilos en línea, como lo necesitan los clientes
+de correo) más una versión en texto plano, y se escribe en el idioma del usuario. Sus textos viven en
+`emails_es.properties` y `emails_en.properties`, y una prueba revisa que los dos tengan los mismos textos. El idioma se
+guarda en la cuenta: empieza como el `Accept-Language` de la solicitud de registro y sigue a
+`PUT /api/v1/users/me/language`. Un restablecimiento de contraseña o un enlace de verificación pedido al iniciar sesión
+usa el `Accept-Language` de la petición sin cambiar el de la cuenta, porque quien lo pide puede no ser el dueño. Las
+notificaciones guardan sus cifras en `params`, así que el correo no se limita al texto en inglés que se guarda en la
+bandeja. `mvn test` deja todos los diseños en `target/email-previews/` para abrirlos en un navegador.
+
+| Configuración | Valores |
 |---|---|
-| `wallet.notifications.email.delivery` | `smtp` (dev, tests and prod by default) or `log` (no email, only a log line) |
-| `wallet.notifications.email.app-url` | Client app that opens the links in verification and reset emails |
-| Production (`prod` profile) | `MAIL_USERNAME`, `MAIL_PASSWORD`, `EMAIL_FROM`, `APP_URL`; `MAIL_HOST` (`smtp.gmail.com` by default) and `MAIL_PORT` (587) only to use another server; `EMAIL_DELIVERY=log` turns email off |
-| Gmail (dev and prod) | The default server (`smtp.gmail.com`, port 587): `MAIL_USERNAME` and an app password as `MAIL_PASSWORD` (see `.env.example`); dev reads them from `.env`. Gmail sends from `MAIL_USERNAME` and allows about 500 emails a day. Integration tests keep using Mailpit through Testcontainers |
-| Payments in production | `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET` (signing secret of the webhook endpoint in the Stripe dashboard); `PAYMENT_PROVIDER=simulated` for demos without real money |
-| Payouts in production | `PAYOUT_PROVIDER` is required: the only provider so far is `simulated`, which sends no real money, so production refuses to start until it is set on purpose |
+| `wallet.notifications.email.delivery` | `smtp` (dev, pruebas y prod por defecto) o `log` (sin correo, solo una línea en el log) |
+| `wallet.notifications.email.app-url` | La app cliente que abre los enlaces de los correos de verificación y restablecimiento |
+| `wallet.notifications.email.time-zone` | Zona en la que se muestran las horas en los correos; `America/Mexico_City` por defecto |
+| Producción (perfil `prod`) | `MAIL_USERNAME`, `MAIL_PASSWORD`, `EMAIL_FROM`, `APP_URL`; `MAIL_HOST` (`smtp.gmail.com` por defecto) y `MAIL_PORT` (587) solo para usar otro servidor; `EMAIL_DELIVERY=log` apaga el correo |
+| Gmail (dev y prod) | El servidor por defecto (`smtp.gmail.com`, puerto 587): `MAIL_USERNAME` y una contraseña de aplicación como `MAIL_PASSWORD` (ver `.env.example`); dev los lee de `.env`. Gmail envía desde `MAIL_USERNAME` y permite unos 500 correos al día. Las pruebas de integración siguen usando Mailpit con Testcontainers |
+| Pagos en producción | `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET` (el secreto de firma del endpoint del webhook en el panel de Stripe); `PAYMENT_PROVIDER=simulated` para demos sin dinero real |
+| Retiros en producción | `PAYOUT_PROVIDER` es obligatorio: `stp` paga los retiros en MXN por SPEI y necesita las variables `STP_*` (ver *Pagos SPEI con STP*); `openpay` los paga a través de Openpay y necesita las `OPENPAY_*` (ver *Pagos con Openpay*); `simulated` no envía dinero real y es solo para demos. Producción no arranca hasta que se define a propósito |
 
-## Operations
+## Operación
 
-### Failed events
+### Eventos fallidos
 
-If an event listener fails (audit, notifications or email), its publication stays in the outbox and a job retries
-it every 30 seconds once its wait has passed: 1 minute after the first failure, then 2, 4... up to 1 hour.
-Publications stuck for 10 minutes, e.g. because an instance died, are retried the same way. The
-`wallet_events_pending` metric and its alert show when something is stuck.
+Si un listener de eventos falla (auditoría, notificaciones o correo), su publicación se queda en el outbox y un proceso
+la reintenta cada 30 segundos una vez que pasa su espera: 1 minuto después del primer fallo, luego 2, 4... hasta 1 hora.
+Las publicaciones atoradas por 10 minutos, por ejemplo porque murió una instancia, se reintentan igual. La métrica
+`wallet_events_pending` y su alerta muestran cuándo algo está atorado.
 
-### Ledger reconciliation
+### Conciliación del libro mayor
 
-Every hour a job checks that each cached balance equals the sum of its postings, that every journal entry balances,
-and that per currency assets plus expenses equal liabilities plus capital. It reads one consistent snapshot, so it never
-blocks or misreads transfers in flight, and only one instance runs it at a time.
+Cada hora un proceso revisa que cada saldo en caché sea igual a la suma de sus asientos, que cada asiento del diario
+cuadre y que, por moneda, los activos más los gastos sean iguales a los pasivos más el capital. Lee una sola foto
+consistente, así que nunca bloquea ni lee mal las transferencias en curso, y solo una instancia lo corre a la vez.
 
-| Method | Path | Description |
+| Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/v1/admin/reconciliations?limit=20` | Latest runs, newest first, with any discrepancies |
-| POST | `/api/v1/admin/reconciliations` | Run one now (`409 RECONCILIATION_IN_PROGRESS` if one is running) |
+| GET | `/api/v1/admin/reconciliations?limit=20` | Las últimas corridas, las más recientes primero, con sus diferencias si las hay |
+| POST | `/api/v1/admin/reconciliations` | Corre una ahora (`409 RECONCILIATION_IN_PROGRESS` si ya hay una corriendo) |
 
-Nightly jobs also delete expired refresh token families, expired email link tokens, idempotency keys older than
-24 hours, daily usage rows older than 7 days, notifications older than 90 days and payment webhook ids older than
-30 days. Every 5 minutes a job settles payments whose provider webhook never arrived, every 15 minutes another
-follows Stripe's balance, and every minute another one moves pending withdrawals forward.
+Los procesos nocturnos también borran las familias de tokens de renovación expiradas, los tokens de enlaces de correo
+expirados, las llaves de idempotencia de más de 24 horas, las filas de uso diario de más de 7 días, las
+notificaciones de más de 90 días y los ids de webhooks de pago de más de 30 días. Cada 5 minutos un proceso liquida
+los pagos cuyo webhook del proveedor nunca llegó, cada 15 minutos otro sigue el saldo de Stripe, y cada minuto otro
+avanza los retiros pendientes.
 
-### Rate limits
+### Límites de peticiones
 
-| Requests | Limit | Counted per |
+| Peticiones | Límite | Contado por |
 |---|---|---|
-| `POST /api/v1/auth/password-reset` | 5 per 15 minutes | client address |
-| `POST /api/v1/auth/register` | 15 per 15 minutes | client address |
-| `POST /api/v1/users/me/email-verification` | 3 per 15 minutes | user |
-| Any other `POST /api/v1/auth/**` | 20 per minute | client address |
-| `POST` deposits, withdrawals, transfers | 30 per minute | user |
-| `POST /api/v1/payments/webhooks/**` | 600 per minute | client address |
-| `GET /api/v1/transfers/recipient` | 20 per minute | user |
-| Any other `/api/**` request | 300 per minute | user |
+| `POST /api/v1/auth/password-reset` | 5 cada 15 minutos | dirección del cliente |
+| `POST /api/v1/auth/register` | 15 cada 15 minutos | dirección del cliente |
+| `POST /api/v1/users/me/email-verification` | 3 cada 15 minutos | usuario |
+| Cualquier otro `POST /api/v1/auth/**` | 20 por minuto | dirección del cliente |
+| `POST` de depósitos, retiros y transferencias | 30 por minuto | usuario |
+| `POST /api/v1/payments/webhooks/**` | 600 por minuto | dirección del cliente |
+| `GET /api/v1/transfers/recipient` | 20 por minuto | usuario |
+| Cualquier otra petición `/api/**` | 300 por minuto | usuario |
 
-Over the limit the API answers `429 RATE_LIMITED` with `Retry-After` (seconds); limited responses include
-`X-RateLimit-Remaining`. Limits are configured in `wallet.rate-limit` and apply per instance. Behind a load balancer
-set `SERVER_FORWARD_HEADERS_STRATEGY=native` so limits see the client's address.
+Al pasar el límite, la API responde `429 RATE_LIMITED` con `Retry-After` (en segundos); las respuestas limitadas
+incluyen `X-RateLimit-Remaining`. Los límites se configuran en `wallet.rate-limit` y aplican por instancia. Detrás de
+un balanceador de carga, define `SERVER_FORWARD_HEADERS_STRATEGY=native` para que los límites vean la dirección del
+cliente.
 
-### Metrics, traces and dashboards
+### Métricas, trazas y tableros
 
 ```bash
 docker compose --profile observability up -d
 ```
 
-| Tool | URL | What it shows |
+| Herramienta | URL | Qué muestra |
 |---|---|---|
-| Grafana | http://localhost:3030 | "Digital Wallet" dashboard: traffic, latency, money moved, rejections, ledger and outbox health, pending and refused payouts, JVM and database pool (sign in as `admin`/`admin` to edit) |
-| Prometheus | http://localhost:9090 | Raw metrics and alert rules (`docker/observability/prometheus/alerts.yml`) |
-| Tempo | through Grafana, Explore > Tempo | Traces of each request down to every SQL statement |
+| Grafana | http://localhost:3030 | Tablero "Digital Wallet": tráfico, latencia, dinero movido, rechazos, salud del libro mayor y del outbox, pagos pendientes y rechazados, JVM y pool de la base de datos (inicia sesión como `admin`/`admin` para editar) |
+| Prometheus | http://localhost:9090 | Métricas en crudo y reglas de alerta (`docker/observability/prometheus/alerts.yml`) |
+| Tempo | desde Grafana, Explore > Tempo | Trazas de cada petición hasta cada sentencia SQL |
 
-On the management port, health and info are open for the orchestrator's probes; metrics and module details need HTTP
-Basic `prometheus:<MANAGEMENT_SCRAPE_PASSWORD>` when that variable is set, which the prod profile requires. The
-compose stack uses `scrape-dev-password` on both sides (`docker/observability/prometheus/prometheus.yml`).
+En el puerto de administración, health e info están abiertos para las sondas del orquestador; las métricas y los
+detalles de los módulos necesitan HTTP Basic `prometheus:<MANAGEMENT_SCRAPE_PASSWORD>` cuando esa variable tiene
+valor, cosa que el perfil prod exige. El stack de compose usa `scrape-dev-password` en ambos lados
+(`docker/observability/prometheus/prometheus.yml`).
 
-The app started from the IDE is scraped on port 8081. It sends traces to Tempo on `localhost:4318` only when started
-with `TRACE_EXPORT=true` (set it in the run configuration while the stack is up): without Tempo, every export would
-log a connection error. Every response's `X-Correlation-Id` is also on its trace
-(`correlation.id`), and log lines show `[correlationId,traceId,spanId]`. In latency panels, dots are exemplars:
-click one to open that request's trace.
+La app arrancada desde el IDE se lee en el puerto 8081. Envía trazas a Tempo en `localhost:4318` solo cuando se
+arranca con `TRACE_EXPORT=true` (ponlo en la configuración de ejecución mientras el stack esté arriba): sin Tempo,
+cada envío registraría un error de conexión. El `X-Correlation-Id` de cada respuesta también está en su traza
+(`correlation.id`), y las líneas del log muestran `[correlationId,traceId,spanId]`. En los paneles de latencia, los
+puntos son exemplars: haz clic en uno para abrir la traza de esa petición.
 
-## Tests
+## Pruebas
 
 ```bash
 ./mvnw verify
 ```
 
-Integration tests start a real PostgreSQL and Mailpit with Testcontainers, so Docker must be running.
+Las pruebas de integración levantan un PostgreSQL y un Mailpit reales con Testcontainers, así que Docker debe estar
+corriendo.
 
-## Error format
+## Formato de errores
 
-Every error follows RFC 9457 Problem Details plus a stable `code` and the request's `correlationId`:
+Cada error sigue RFC 9457 Problem Details más un `code` estable y el `correlationId` de la petición:
 
 ```json
 {
@@ -464,6 +691,4 @@ Every error follows RFC 9457 Problem Details plus a stable `code` and the reques
 }
 ```
 
-
-Send an `X-Correlation-Id` header to trace a request across logs; one is generated otherwise.
-
+Envía un encabezado `X-Correlation-Id` para seguir una petición en los logs; si no, se genera uno.

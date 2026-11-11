@@ -165,6 +165,13 @@ public class ProviderBalanceService {
     }
 
     /**
+     * How many movements wait: unmatched ones for a person, pending ones for the payment they belong to.
+     */
+    public long count(ProviderTransaction.Status status) {
+        return transactions.count(status);
+    }
+
+    /**
      * Closes an unmatched movement with what the person who looked at it concluded. Posts nothing: if the ledger needs
      * correcting, that is a separate step.
      *
