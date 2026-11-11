@@ -87,6 +87,17 @@ public class BankAccountService implements BankAccounts {
     }
 
     /**
+     * Only a label for the owner, so unlike adding one it asks for no second factor and is not announced.
+     */
+    @Transactional
+    public BankAccountSummary rename(UUID ownerId, UUID bankAccountId, String alias) {
+        BankAccount bankAccount = requireActive(bankAccountId, ownerId);
+        bankAccount.rename(alias);
+        repository.save(bankAccount);
+        return BankAccountSummary.from(bankAccount, coolingOff);
+    }
+
+    /**
      * Withdrawals already on their way still pay into it.
      */
     @Transactional

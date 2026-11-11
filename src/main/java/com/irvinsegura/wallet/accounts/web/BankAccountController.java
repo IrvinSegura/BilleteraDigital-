@@ -17,6 +17,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,6 +52,15 @@ class BankAccountController {
         return bankAccountService.list(userId(jwt)).stream().map(BankAccountResponse::from).toList();
     }
 
+    /**
+     * Sets or, with a blank alias, clears the name the owner gives the account.
+     */
+    @PatchMapping("/{bankAccountId}")
+    BankAccountResponse rename(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID bankAccountId,
+            @Valid @RequestBody RenameBankAccountRequest request) {
+        return BankAccountResponse.from(bankAccountService.rename(userId(jwt), bankAccountId, request.alias()));
+    }
+
     @DeleteMapping("/{bankAccountId}")
     ResponseEntity<Void> remove(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID bankAccountId) {
         bankAccountService.remove(userId(jwt), bankAccountId);
@@ -71,12 +81,17 @@ class BankAccountController {
             @NotBlank @Size(max = 100) @Pattern(regexp = PlainText.NO_MARKUP, message = PlainText.NO_MARKUP_MESSAGE) String holderName, @Size(max = 20) String twoFactorCode) {
     }
 
-    record BankAccountResponse(UUID id, String bankCode, String clabeLastFour, String holderName, Instant createdAt,
-            Instant withdrawalsAvailableFrom) {
+    record RenameBankAccountRequest(
+            @Size(max = 40) @Pattern(regexp = PlainText.NO_MARKUP, message = PlainText.NO_MARKUP_MESSAGE) String alias) {
+    }
+
+    record BankAccountResponse(UUID id, String bankCode, String clabeLastFour, String holderName, String alias,
+            Instant createdAt, Instant withdrawalsAvailableFrom) {
 
         static BankAccountResponse from(BankAccountSummary bankAccount) {
             return new BankAccountResponse(bankAccount.id(), bankAccount.bankCode(), bankAccount.clabeLastFour(),
-                    bankAccount.holderName(), bankAccount.createdAt(), bankAccount.withdrawalsAvailableFrom());
+                    bankAccount.holderName(), bankAccount.alias(), bankAccount.createdAt(),
+                    bankAccount.withdrawalsAvailableFrom());
         }
     }
 }
