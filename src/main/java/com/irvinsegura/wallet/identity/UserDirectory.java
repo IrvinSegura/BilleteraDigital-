@@ -1,5 +1,8 @@
 package com.irvinsegura.wallet.identity;
 
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +23,27 @@ public interface UserDirectory {
     Optional<UserContact> findContact(UUID userId);
 
     /**
+     * The names of those of {@code userIds} that exist, in one read, for lists that show many people.
+     */
+    Map<UUID, String> findNames(Collection<UUID> userIds);
+
+    /**
+     * Where the customer's account stands: enabled or not, locked, email and INE, for the agent attending them.
+     */
+    Optional<AccountStanding> findStanding(UUID userId);
+
+    /**
+     * The support agents whose accounts are enabled.
+     */
+    List<UUID> activeSupportAgents();
+
+    /**
+     * The users whose name, or email when {@code byEmail}, contains the text, ignoring case: at most {@code limit},
+     * for finding someone's support cases.
+     */
+    List<UUID> findIdsMatching(String text, boolean byEmail, int limit);
+
+    /**
      * Authorizes money leaving the user's wallets (withdrawals, transfers sent): takes a shared lock on the user until
      * the caller's transaction ends and checks the account is enabled and its email verified. Disabling the account
      * waits for operations in flight and rejects the ones after it, even with an access token issued earlier.
@@ -28,6 +52,16 @@ public interface UserDirectory {
      * @throws EmailNotVerifiedException if the user has not confirmed their email address yet
      */
     void authorizeOutgoingMoney(UUID userId);
+
+    /**
+     * Authorizes money leaving for a bank account: the same lock and checks as {@link #authorizeOutgoingMoney}, and,
+     * where the configuration requires it, an identity verified with an official document.
+     *
+     * @throws AccountDisabledException     if an administrator disabled the account
+     * @throws EmailNotVerifiedException    if the user has not confirmed their email address yet
+     * @throws IdentityNotVerifiedException if the identity is not verified and it is required
+     */
+    void authorizeWithdrawal(UUID userId);
 
     /**
      * Authorizes a deposit the user makes: the same lock, but only the account status is checked, since unverified
