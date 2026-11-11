@@ -83,7 +83,7 @@ class CapitalContributionIntegrationTest {
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_CURRENCY"));
         api.get(admin, SYSTEM_ACCOUNTS)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(12));
+                .andExpect(jsonPath("$.length()").value(16));
     }
 
     private static String contribution(String currency, String amount, String reference) {
