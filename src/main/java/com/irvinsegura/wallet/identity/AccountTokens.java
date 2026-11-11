@@ -21,4 +21,18 @@ public interface AccountTokens {
      * @return empty if the user does not exist or is disabled
      */
     Optional<IssuedToken> issuePasswordReset(UUID userId);
+
+    /**
+     * @return empty if the user is no longer active or the address belongs to an account by now, so nothing is sent
+     *         to it
+     */
+    Optional<IssuedToken> issueEmailChange(UUID userId, String newEmail);
+
+    /**
+     * Gives a new staff account its first password and returns it, the only moment it exists unhashed.
+     *
+     * @return empty if the user is no longer active or already has a password, for example one they set from the
+     *         sign-in page: an event delivered twice must not replace it
+     */
+    Optional<String> issueInitialPassword(UUID userId);
 }

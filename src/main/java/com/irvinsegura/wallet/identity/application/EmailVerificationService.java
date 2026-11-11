@@ -47,7 +47,7 @@ public class EmailVerificationService {
         if (user.isEmailVerified()) {
             throw new EmailAlreadyVerifiedException();
         }
-        events.publishEvent(new EmailVerificationRequested(userId, clock.instant()));
+        events.publishEvent(new EmailVerificationRequested(userId, null, clock.instant()));
     }
 
     /**
