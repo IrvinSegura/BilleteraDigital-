@@ -1,7 +1,9 @@
 package com.irvinsegura.wallet.ledger.infrastructure.persistence;
 
+import com.irvinsegura.wallet.ledger.domain.model.CustomerBalance;
 import com.irvinsegura.wallet.ledger.domain.model.LedgerAccount;
 import com.irvinsegura.wallet.ledger.domain.port.LedgerAccountRepository;
+import com.irvinsegura.wallet.shared.domain.Money;
 import java.util.Collection;
 import java.util.Currency;
 import java.util.List;
@@ -45,7 +47,15 @@ class LedgerAccountPersistenceAdapter implements LedgerAccountRepository {
     }
 
     @Override
+    public List<CustomerBalance> sumCustomerBalances() {
+        return jpaRepository.sumCustomerBalances().stream()
+                .map(row -> new CustomerBalance(Money.ofMinor(row.getBalance(), row.getCurrency()), row.getAccounts()))
+                .toList();
+    }
+
+    @Override
     public void save(LedgerAccount account) {
         jpaRepository.save(LedgerAccountEntity.fromDomain(account));
     }
+
 }

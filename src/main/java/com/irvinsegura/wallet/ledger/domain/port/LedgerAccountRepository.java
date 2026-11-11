@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.ledger.domain.port;
 
+import com.irvinsegura.wallet.ledger.domain.model.CustomerBalance;
 import com.irvinsegura.wallet.ledger.domain.model.LedgerAccount;
 import java.util.Collection;
 import java.util.Currency;
@@ -23,6 +24,11 @@ public interface LedgerAccountRepository {
      * Ordered by code, then currency.
      */
     List<LedgerAccount> findSystemAccounts();
+
+    /**
+     * The customers' accounts added up by currency, ordered by currency.
+     */
+    List<CustomerBalance> sumCustomerBalances();
 
     void save(LedgerAccount account);
 }
