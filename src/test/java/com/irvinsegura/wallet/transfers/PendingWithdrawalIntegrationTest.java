@@ -97,9 +97,18 @@ class PendingWithdrawalIntegrationTest {
         assertThat(order.destination().clabe()).hasSize(18).startsWith("002");
         assertThat(order.destination().holderName()).isEqualTo("Ana López");
         assertThat(order.amount().toDecimal()).isEqualByComparingTo("300.00");
+        // Support sees it waiting, with whose it is
+        TestUser admin = api.admin();
+        String waiting = "/api/v1/admin/operations/pending?kind=withdrawal&limit=200";
+        List<String> pendingIds = JsonPath.read(api.get(admin, waiting).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "$[*].id");
+        assertThat(pendingIds).contains(withdrawalId);
 
         payouts.settle(withdrawalId, PayoutResult.Status.PAID, null);
         assertThat(pendingWithdrawals.advancePendingWithdrawals()).isGreaterThanOrEqualTo(1);
+        List<String> stillPending = JsonPath.read(api.get(admin, waiting)
+                .andReturn().getResponse().getContentAsString(), "$[*].id");
+        assertThat(stillPending).doesNotContain(withdrawalId);
 
         withdrawal(withdrawalId)
                 .andExpect(jsonPath("$.status").value("PAID"))
