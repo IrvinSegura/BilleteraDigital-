@@ -27,6 +27,7 @@ class SpringPasswordHasher implements PasswordHasher {
 
     @Override
     public boolean matches(String rawPassword, String passwordHash) {
-        return encoder.matches(rawPassword, passwordHash);
+        // The encoder rejects a value it can't read instead of saying that it doesn't match
+        return !NO_PASSWORD.equals(passwordHash) && encoder.matches(rawPassword, passwordHash);
     }
 }

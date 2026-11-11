@@ -45,6 +45,10 @@ class SecurityConfiguration {
     // Referenced by controllers so Swagger UI sends the access token on protected endpoints
     static final String BEARER_SCHEME = "bearerAuth";
 
+    // A trailing /** also matches the path itself
+    private static final String[] CUSTOMER_ONLY = {"/api/v1/wallets/**", "/api/v1/transfers/**",
+            "/api/v1/bank-accounts/**", "/api/v1/support/conversation/**", "/api/v1/users/me/identity-verification/**"};
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver,
@@ -66,7 +70,7 @@ class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout",
                                 "/api/v1/auth/email-verification/confirm", "/api/v1/auth/password-reset",
-                                "/api/v1/auth/password-reset/confirm").permitAll()
+                                "/api/v1/auth/password-reset/confirm", "/api/v1/auth/email-change/confirm").permitAll()
                         // Called by the payment provider, which proves itself with a signature instead of a token
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/webhooks/**").permitAll()
                         // The management port is reachable only from inside the network: probes are open, and
@@ -80,6 +84,11 @@ class SecurityConfiguration {
                         .requestMatchers("/error").permitAll()
                         // One rule for every module's admin endpoints, so none can be exposed by mistake
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/support/agent/**").hasRole("SUPPORT")
+                        // Money belongs to customers only: staff run the app, so an administrator or an agent can
+                        // neither open a wallet, move money, add a bank account, open a customer chat nor verify an
+                        // identity of their own; they see customers' activity through the admin endpoints
+                        .requestMatchers(CUSTOMER_ONLY).hasRole("USER")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(resourceServer -> resourceServer
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
@@ -88,6 +97,9 @@ class SecurityConfiguration {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(accessDeniedHandler));
+        // After authorization, so only callers already allowed in are checked; first, because an account that still has
+        // its emailed password has to replace it before it can turn on two-factor
+        http.addFilterAfter(new PasswordChangeFilter(exceptionResolver), AuthorizationFilter.class);
         if (adminRequiresTwoFactor) {
             // After authorization, so only administrators already allowed in are checked
             http.addFilterAfter(new AdminTwoFactorFilter(exceptionResolver), AuthorizationFilter.class);
