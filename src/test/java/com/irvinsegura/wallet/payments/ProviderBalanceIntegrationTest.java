@@ -158,6 +158,10 @@ class ProviderBalanceIntegrationTest {
             providerBalance.synchronize();
             assertThat(transactionIds("UNMATCHED")).contains(disputeId);
         });
+        api.get(admin, TRANSACTIONS + "/counts")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unmatched").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.pending").isNumber());
         Map<String, Long> before = systemBalances("MXN");
         String resolve = TRANSACTIONS + "/" + providerBalance.providerName() + "/" + disputeId + "/resolve";
         String reason = """

@@ -34,4 +34,6 @@ public interface ProviderTransactionRepository {
      * Newest first; a null status matches every status.
      */
     List<ProviderTransaction> find(ProviderTransaction.Status status, int limit);
+
+    long count(ProviderTransaction.Status status);
 }

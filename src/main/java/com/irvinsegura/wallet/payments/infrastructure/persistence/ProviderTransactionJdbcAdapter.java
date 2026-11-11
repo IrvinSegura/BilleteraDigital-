@@ -130,6 +130,14 @@ class ProviderTransactionJdbcAdapter implements ProviderTransactionRepository {
                 .list();
     }
 
+    @Override
+    public long count(ProviderTransaction.Status status) {
+        return jdbcClient.sql("SELECT count(*) FROM provider_balance_transactions WHERE status = :status")
+                .param("status", status.name())
+                .query(Long.class)
+                .single();
+    }
+
     private static ProviderTransaction map(ResultSet rs, int rowNum) throws SQLException {
         BalanceTransaction transaction = new BalanceTransaction(rs.getString("id"),
                 BalanceTransaction.Type.valueOf(rs.getString("type")), rs.getString("provider_type"),
