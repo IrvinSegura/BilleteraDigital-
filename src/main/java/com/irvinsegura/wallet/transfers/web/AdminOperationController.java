@@ -4,15 +4,25 @@ import com.irvinsegura.wallet.shared.web.MoneyResponse;
 import com.irvinsegura.wallet.transfers.application.OperationAdministrationService;
 import com.irvinsegura.wallet.transfers.domain.model.Deposit;
 import com.irvinsegura.wallet.transfers.domain.model.DepositStatus;
+import com.irvinsegura.wallet.transfers.domain.model.OperationSuggestion;
+import com.irvinsegura.wallet.transfers.domain.model.OperationDailyTotal;
+import com.irvinsegura.wallet.transfers.domain.model.OperationTotal;
+import com.irvinsegura.wallet.transfers.domain.model.PendingOperation;
 import com.irvinsegura.wallet.transfers.domain.model.Transfer;
 import com.irvinsegura.wallet.transfers.domain.model.Withdrawal;
 import com.irvinsegura.wallet.transfers.domain.model.WithdrawalStatus;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -30,6 +40,44 @@ class AdminOperationController {
         this.administrationService = administrationService;
     }
 
+    /**
+     * Up to six operations whose id starts with {@code q}, the newest first, as the administrator types.
+     */
+    @GetMapping("/operations/suggestions")
+    List<OperationSuggestionResponse> suggestions(
+            @RequestParam @Pattern(regexp = "[0-9a-fA-F-]{1,36}", message = "must be the start of an id") String q,
+            @RequestParam(required = false)
+            @Pattern(regexp = "transfer|deposit|withdrawal", message = "must be a kind of operation") String kind) {
+        return administrationService.suggest(q, kind).stream().map(OperationSuggestionResponse::from).toList();
+    }
+
+    /**
+     * Deposits and withdrawals still pending, the oldest first: the ones most likely stuck.
+     */
+    @GetMapping("/operations/pending")
+    List<PendingOperationResponse> pending(
+            @RequestParam(required = false)
+            @Pattern(regexp = "deposit|withdrawal", message = "must be deposit or withdrawal") String kind,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit) {
+        return administrationService.pending(kind, limit).stream().map(PendingOperationResponse::from).toList();
+    }
+
+    /**
+     * Completed deposits, paid withdrawals and transfers of the last {@code days} days, by kind and currency.
+     */
+    @GetMapping("/operations/totals")
+    List<OperationTotalResponse> totals(@RequestParam(defaultValue = "7") @Min(1) @Max(90) int days) {
+        return administrationService.totals(days).stream().map(OperationTotalResponse::from).toList();
+    }
+
+    /**
+     * What finished each day, for the charts of the administration home. Days with nothing have no row.
+     */
+    @GetMapping("/operations/daily")
+    List<OperationDailyResponse> daily(@RequestParam(defaultValue = "30") @Min(1) @Max(180) int days) {
+        return administrationService.dailyTotals(days).stream().map(OperationDailyResponse::from).toList();
+    }
+
     @GetMapping("/transfers/{transferId}")
     AdminTransferResponse transfer(@PathVariable UUID transferId) {
         return AdminTransferResponse.from(administrationService.getTransfer(transferId));
@@ -43,6 +91,38 @@ class AdminOperationController {
     @GetMapping("/withdrawals/{withdrawalId}")
     AdminWithdrawalResponse withdrawal(@PathVariable UUID withdrawalId) {
         return AdminWithdrawalResponse.from(administrationService.getWithdrawal(withdrawalId));
+    }
+
+    record PendingOperationResponse(String kind, UUID id, UUID userId, UUID walletId, MoneyResponse amount,
+            Instant createdAt) {
+
+        static PendingOperationResponse from(PendingOperation operation) {
+            return new PendingOperationResponse(operation.kind(), operation.id(), operation.userId(),
+                    operation.walletId(), MoneyResponse.from(operation.amount()), operation.createdAt());
+        }
+    }
+
+    record OperationDailyResponse(LocalDate date, String kind, long count, MoneyResponse amount) {
+
+        static OperationDailyResponse from(OperationDailyTotal total) {
+            return new OperationDailyResponse(total.date(), total.kind(), total.count(),
+                    MoneyResponse.from(total.amount()));
+        }
+    }
+
+    record OperationTotalResponse(String kind, long count, MoneyResponse amount) {
+
+        static OperationTotalResponse from(OperationTotal total) {
+            return new OperationTotalResponse(total.kind(), total.count(), MoneyResponse.from(total.amount()));
+        }
+    }
+
+    record OperationSuggestionResponse(String kind, UUID id, MoneyResponse amount, Instant createdAt) {
+
+        static OperationSuggestionResponse from(OperationSuggestion suggestion) {
+            return new OperationSuggestionResponse(suggestion.kind(), suggestion.id(),
+                    MoneyResponse.from(suggestion.amount()), suggestion.createdAt());
+        }
     }
 
     record AdminTransferResponse(UUID id, UUID senderId, UUID sourceWalletId, UUID recipientId,

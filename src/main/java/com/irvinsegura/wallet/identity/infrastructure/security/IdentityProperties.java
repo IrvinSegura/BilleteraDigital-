@@ -21,7 +21,17 @@ public record IdentityProperties(
         @NotNull Duration emailVerificationTtl,
         @NotNull Duration passwordResetTtl,
         @Valid @NotNull TwoFactor twoFactor,
-        @Valid @NotNull Captcha captcha) {
+        @Valid @NotNull Captcha captcha,
+        @Valid @NotNull Verification verification) {
+
+    /**
+     * Identity verification with a voter card (INE).
+     *
+     * @param requiredForWithdrawals whether money can leave for a bank account only with a verified identity
+     * @param maxAttemptsPerDay      verifications a customer can send in 24 hours
+     */
+    public record Verification(boolean requiredForWithdrawals, @Min(1) int maxAttemptsPerDay) {
+    }
 
     /**
      * Key locations accept any Spring resource, e.g. {@code file:/run/secrets/jwt-private.pem}. The private key

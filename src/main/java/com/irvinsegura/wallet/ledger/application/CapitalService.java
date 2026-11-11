@@ -6,6 +6,7 @@ import com.irvinsegura.wallet.ledger.NewJournalEntry;
 import com.irvinsegura.wallet.ledger.RecordedEntry;
 import com.irvinsegura.wallet.ledger.UnsupportedCurrencyException;
 import com.irvinsegura.wallet.ledger.domain.model.CapitalContributionExistsException;
+import com.irvinsegura.wallet.ledger.domain.model.CustomerBalance;
 import com.irvinsegura.wallet.ledger.domain.model.LedgerAccount;
 import com.irvinsegura.wallet.ledger.domain.port.JournalEntryRepository;
 import com.irvinsegura.wallet.ledger.domain.port.LedgerAccountRepository;
@@ -77,6 +78,14 @@ public class CapitalService {
         return accountRepository.findSystemAccounts();
     }
 
+    /**
+     * All the customers' money, by currency.
+     */
+    @Transactional(readOnly = true)
+    public List<CustomerBalance> customerBalances() {
+        return accountRepository.sumCustomerBalances();
+    }
+
     private LedgerAccount systemAccount(String systemCode, Currency currency) {
         return accountRepository.findSystemAccount(systemCode, currency)
                 .orElseThrow(() -> new UnsupportedCurrencyException(currency.getCurrencyCode()));
@@ -89,4 +98,5 @@ public class CapitalService {
             throw new UnsupportedCurrencyException(currencyCode);
         }
     }
+
 }

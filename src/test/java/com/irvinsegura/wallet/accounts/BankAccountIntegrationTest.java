@@ -9,6 +9,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -31,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -140,6 +142,25 @@ class BankAccountIntegrationTest {
     }
 
     @Test
+    void theOwnerNamesAnAccountAndCanClearTheName() throws Exception {
+        String id = read(api.addBankAccount(user, newClabe()).andExpect(jsonPath("$.alias").doesNotExist()), "$.id");
+
+        rename(user, id, "\"  Nómina  \"")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alias").value("Nómina"))
+                .andExpect(jsonPath("$.holderName").value("Ana López"));
+        api.get(user, BANK_ACCOUNTS).andExpect(jsonPath("$[0].alias").value("Nómina"));
+
+        rename(user, id, "\"<b>x</b>\"").andExpect(status().isBadRequest());
+        rename(user, id, "\"" + "x".repeat(41) + "\"").andExpect(status().isBadRequest());
+        rename(api.newUser(), id, "\"Mía\"").andExpect(status().isNotFound());
+
+        rename(user, id, "\"\"").andExpect(status().isOk()).andExpect(jsonPath("$.alias").doesNotExist());
+        remove(user, id).andExpect(status().isNoContent());
+        rename(user, id, "\"Ahorro\"").andExpect(status().isNotFound());
+    }
+
+    @Test
     void aRemovedAccountTakesNoNewWithdrawalsButCanBeAddedAgain() throws Exception {
         String clabe = newClabe();
         String id = read(api.addBankAccount(user, clabe), "$.id");
@@ -171,6 +192,12 @@ class BankAccountIntegrationTest {
         String audit = api.get(admin, "/api/v1/admin/audit-events?targetId=" + userId)
                 .andReturn().getResponse().getContentAsString();
         assertThat(audit).contains(clabe.substring(14)).doesNotContain(clabe);
+    }
+
+    private ResultActions rename(TestUser caller, String bankAccountId, String aliasJson) throws Exception {
+        return mockMvc.perform(patch(BANK_ACCOUNTS + "/" + bankAccountId).header("Authorization", caller.bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"alias\": " + aliasJson + "}"));
     }
 
     private ResultActions remove(TestUser caller, String bankAccountId) throws Exception {

@@ -1,5 +1,6 @@
 package com.irvinsegura.wallet.identity.infrastructure.persistence;
 
+import com.irvinsegura.wallet.identity.domain.model.Email;
 import com.irvinsegura.wallet.identity.domain.model.OneTimeToken;
 import com.irvinsegura.wallet.identity.domain.model.TokenPurpose;
 import com.irvinsegura.wallet.identity.domain.model.UserId;
@@ -36,6 +37,9 @@ class OneTimeTokenEntity {
     @Column(name = "expires_at", nullable = false, updatable = false)
     private Instant expiresAt;
 
+    @Column(name = "new_email", updatable = false, length = 254)
+    private String newEmail;
+
     protected OneTimeTokenEntity() {
     }
 
@@ -47,10 +51,12 @@ class OneTimeTokenEntity {
         entity.tokenHash = token.tokenHash();
         entity.createdAt = token.createdAt();
         entity.expiresAt = token.expiresAt();
+        entity.newEmail = token.newEmail() == null ? null : token.newEmail().value();
         return entity;
     }
 
     OneTimeToken toDomain() {
-        return OneTimeToken.restore(id, new UserId(userId), purpose, tokenHash, createdAt, expiresAt);
+        return OneTimeToken.restore(id, new UserId(userId), purpose, tokenHash, createdAt, expiresAt,
+                newEmail == null ? null : Email.of(newEmail));
     }
 }

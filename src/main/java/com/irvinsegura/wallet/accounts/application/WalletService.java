@@ -1,5 +1,7 @@
 package com.irvinsegura.wallet.accounts.application;
 
+import com.irvinsegura.wallet.accounts.OperationDetails;
+import com.irvinsegura.wallet.accounts.OperationDetails.OperationDetail;
 import com.irvinsegura.wallet.accounts.WalletInfo;
 import com.irvinsegura.wallet.accounts.WalletNotActiveException;
 import com.irvinsegura.wallet.accounts.WalletNotFoundException;
@@ -27,9 +29,13 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,20 +45,26 @@ public class WalletService implements Wallets {
 
     // Large pages keep a statement's round trips few without loading a whole year in one query
     private static final int STATEMENT_PAGE_SIZE = 500;
+    // A search reads at most this many of a wallet's newest matches, far more than anyone pages through
+    private static final int MAX_TEXT_MATCHES = 1000;
+    private static final Pattern FOLIO_START = Pattern.compile("[0-9a-fA-F-]{1,36}");
 
     private final WalletRepository walletRepository;
     private final OutgoingUsageRepository outgoingUsageRepository;
     private final DailyLimitPolicy dailyLimitPolicy;
     private final Ledger ledger;
+    private final OperationDetails operationDetails;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     WalletService(WalletRepository walletRepository, OutgoingUsageRepository outgoingUsageRepository,
-            DailyLimitPolicy dailyLimitPolicy, Ledger ledger, ApplicationEventPublisher events, Clock clock) {
+            DailyLimitPolicy dailyLimitPolicy, Ledger ledger, OperationDetails operationDetails,
+            ApplicationEventPublisher events, Clock clock) {
         this.walletRepository = walletRepository;
         this.outgoingUsageRepository = outgoingUsageRepository;
         this.dailyLimitPolicy = dailyLimitPolicy;
         this.ledger = ledger;
+        this.operationDetails = operationDetails;
         this.events = events;
         this.clock = clock;
     }
@@ -89,8 +101,11 @@ public class WalletService implements Wallets {
      * The wallet's movements that match {@code criteria}, newest first.
      */
     @Transactional(readOnly = true)
-    public MovementPage movements(UUID walletId, UUID ownerId, MovementCriteria criteria, int page, int size) {
-        return ledger.movementsOf(requireOwned(walletId, ownerId).ledgerAccountId(), toFilter(criteria), page, size);
+    public WalletMovementPage movements(UUID walletId, UUID ownerId, MovementCriteria criteria, int page, int size) {
+        MovementPage found = ledger.movementsOf(requireOwned(walletId, ownerId).ledgerAccountId(),
+                toFilter(walletId, criteria), page, size);
+        return new WalletMovementPage(withDetails(walletId, found.items()), found.page(), found.size(),
+                found.hasNext());
     }
 
     /**
@@ -99,9 +114,10 @@ public class WalletService implements Wallets {
      * @throws MovementNotFoundException if the transaction didn't move this wallet's money
      */
     @Transactional(readOnly = true)
-    public AccountMovement movement(UUID walletId, UUID ownerId, UUID transactionId) {
-        return ledger.movementOf(requireOwned(walletId, ownerId).ledgerAccountId(), transactionId)
+    public WalletMovement movement(UUID walletId, UUID ownerId, UUID transactionId) {
+        AccountMovement movement = ledger.movementOf(requireOwned(walletId, ownerId).ledgerAccountId(), transactionId)
                 .orElseThrow(MovementNotFoundException::new);
+        return withDetails(walletId, List.of(movement)).getFirst();
     }
 
     /**
@@ -109,15 +125,15 @@ public class WalletService implements Wallets {
      * statement. Callers bound the period: it is read whole.
      */
     @Transactional(readOnly = true)
-    public List<AccountMovement> statement(UUID walletId, UUID ownerId, LocalDate from, LocalDate to) {
+    public List<WalletMovement> statement(UUID walletId, UUID ownerId, LocalDate from, LocalDate to) {
         UUID accountId = requireOwned(walletId, ownerId).ledgerAccountId();
-        MovementFilter filter = toFilter(new MovementCriteria(from, to, Set.of(), null, null));
-        List<AccountMovement> newestFirst = new ArrayList<>();
+        MovementFilter filter = toFilter(walletId, new MovementCriteria(from, to, Set.of(), null, null));
+        List<WalletMovement> newestFirst = new ArrayList<>();
         MovementPage page;
         int number = 0;
         do {
             page = ledger.movementsOf(accountId, filter, number++, STATEMENT_PAGE_SIZE);
-            newestFirst.addAll(page.items());
+            newestFirst.addAll(withDetails(walletId, page.items()));
         } while (page.hasNext());
         return newestFirst.reversed();
     }
@@ -138,17 +154,20 @@ public class WalletService implements Wallets {
     }
 
     /**
-     * The wallet's balances at the start and end of {@code month}, and the money in and out during it, from all of
-     * its movements.
+     * The wallet's balances at the start of {@code from} and the end of {@code to}, and the money in and out between
+     * them, from all of its movements. Days follow the users' zone.
      */
     @Transactional(readOnly = true)
-    public MonthSummary monthSummary(UUID walletId, UUID ownerId, YearMonth month) {
+    public PeriodSummary periodSummary(UUID walletId, UUID ownerId, LocalDate from, LocalDate to) {
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("from must not be after to");
+        }
         ZoneId zone = dailyLimitPolicy.zone();
         UUID accountId = requireOwned(walletId, ownerId).ledgerAccountId();
-        Instant start = month.atDay(1).atStartOfDay(zone).toInstant();
-        Instant end = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant();
+        Instant start = from.atStartOfDay(zone).toInstant();
+        Instant end = to.plusDays(1).atStartOfDay(zone).toInstant();
         FlowTotals flows = ledger.flowsOf(accountId, start, end);
-        return new MonthSummary(month, ledger.balanceAt(accountId, start), flows.moneyIn(), flows.moneyOut(),
+        return new PeriodSummary(from, to, ledger.balanceAt(accountId, start), flows.moneyIn(), flows.moneyOut(),
                 ledger.balanceAt(accountId, end));
     }
 
@@ -234,6 +253,18 @@ public class WalletService implements Wallets {
 
     @Override
     @Transactional
+    public WalletInfo lockForAdjustment(UUID walletId) {
+        return toInfo(walletRepository.findByIdForUpdate(walletId).orElseThrow(WalletNotFoundException::new));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WalletInfo> walletsOf(UUID ownerId) {
+        return walletRepository.findByOwner(ownerId).stream().map(WalletService::toInfo).toList();
+    }
+
+    @Override
+    @Transactional
     public void reserveTransfer(UUID sourceWalletId, UUID ownerId, UUID destinationWalletId, Money amount) {
         // Same fixed order as the ledger uses for accounts: A->B and B->A at the same time wait for each other
         if (sourceWalletId.compareTo(destinationWalletId) < 0) {
@@ -258,12 +289,25 @@ public class WalletService implements Wallets {
         return wallet;
     }
 
-    private MovementFilter toFilter(MovementCriteria criteria) {
+    private List<WalletMovement> withDetails(UUID walletId, List<AccountMovement> movements) {
+        Map<String, OperationDetail> details = operationDetails.of(walletId, movements.stream()
+                .map(AccountMovement::reference).filter(Objects::nonNull).collect(Collectors.toSet()));
+        return movements.stream().map(movement -> {
+            OperationDetail detail = movement.reference() == null ? null : details.get(movement.reference());
+            return new WalletMovement(movement, detail == null ? null : detail.counterpartyName(),
+                    detail == null ? null : detail.description());
+        }).toList();
+    }
+
+    private MovementFilter toFilter(UUID walletId, MovementCriteria criteria) {
         ZoneId zone = dailyLimitPolicy.zone();
+        String text = criteria.text();
         return new MovementFilter(
                 criteria.from() == null ? null : criteria.from().atStartOfDay(zone).toInstant(),
                 criteria.to() == null ? null : criteria.to().plusDays(1).atStartOfDay(zone).toInstant(),
-                criteria.types(), criteria.direction(), criteria.referencePrefix());
+                criteria.types(), criteria.direction(),
+                text != null && FOLIO_START.matcher(text).matches() ? text : null,
+                text == null ? null : operationDetails.matching(walletId, text, MAX_TEXT_MATCHES));
     }
 
     private Wallet requireOwned(UUID walletId, UUID ownerId) {

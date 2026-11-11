@@ -66,6 +66,54 @@ class AdminUserIntegrationTest {
     }
 
     @Test
+    void supportPreviewsTheUsersThatMatchWhatIsTyped() throws Exception {
+        String startOfEmail = user.email().substring(0, 15);
+
+        suggestions(admin, startOfEmail.toUpperCase())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(userId))
+                .andExpect(jsonPath("$[0].email").value(user.email()))
+                .andExpect(jsonPath("$[0].fullName").value("Ana López"))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+        suggestions(admin, userId.substring(0, 13)).andExpect(jsonPath("$[0].id").value(userId));
+
+        // A preview: however many match, a few are enough. Six regular users match the name below, and more may
+        for (int i = 0; i < 6; i++) {
+            api.newUser();
+        }
+        suggestions(admin, "ana lóp").andExpect(jsonPath("$.length()").value(6));
+
+        // What was typed is taken literally, and a single letter matches too much to be useful
+        suggestions(admin, "%%").andExpect(jsonPath("$.length()").value(0));
+        suggestions(admin, "a").andExpect(jsonPath("$.length()").value(0));
+        suggestions(api.newUser(), startOfEmail).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void supportPreviewsOperationsAndWalletsByTheStartOfTheirId() throws Exception {
+        String walletId = api.openWalletId(user, "MXN");
+        String depositId = read(api.deposit(user, walletId, "100.00"), "$.id");
+        String deposits = "/api/v1/admin/operations/suggestions?q=" + depositId.substring(0, 18).toUpperCase();
+
+        api.get(admin, deposits)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(depositId))
+                .andExpect(jsonPath("$[0].kind").value("deposit"))
+                .andExpect(jsonPath("$[0].amount.amount").value(100.00))
+                .andExpect(jsonPath("$[0].amount.currency").value("MXN"));
+        api.get(admin, deposits + "&kind=deposit").andExpect(jsonPath("$[0].id").value(depositId));
+        api.get(admin, deposits + "&kind=transfer").andExpect(jsonPath("$.length()").value(0));
+        api.get(admin, "/api/v1/admin/operations/suggestions?q=%25").andExpect(status().isBadRequest());
+        api.get(user, deposits).andExpect(status().isForbidden());
+
+        api.get(admin, "/api/v1/admin/wallets/suggestions?q=" + walletId.substring(0, 18))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(walletId))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+    }
+
+    @Test
     void supportFindsAUserByEmailWithTheirWallets() throws Exception {
         String walletId = api.openWalletId(user, "MXN");
         api.deposit(user, walletId, "100.00").andExpect(status().isCreated());
@@ -174,6 +222,39 @@ class AdminUserIntegrationTest {
                 .andExpect(jsonPath("$.code").value("DEPOSIT_NOT_FOUND"));
         api.get(admin, "/api/v1/admin/withdrawals/" + transferId)
                 .andExpect(jsonPath("$.code").value("WITHDRAWAL_NOT_FOUND"));
+    }
+
+    @Test
+    void supportSeesWhatMovedLatelyAndWhatIsStillWaiting() throws Exception {
+        TestUser friend = api.newUser();
+        String walletId = api.openWalletId(user, "MXN");
+        api.openWalletId(friend, "MXN");
+        String depositId = read(api.deposit(user, walletId, "100.00"), "$.id");
+        api.withdraw(user, walletId, "10.00");
+        api.transfer(user, walletId, friend.email(), "5.00", newKey());
+
+        String totals = api.get(admin, "/api/v1/admin/operations/totals?days=1")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        for (String kind : List.of("deposit", "withdrawal", "transfer")) {
+            List<Integer> counts = JsonPath.read(totals, "$[?(@.kind == '" + kind + "' && @.amount.currency == 'MXN')].count");
+            assertThat(counts).as(kind).singleElement().satisfies(count -> assertThat(count).isPositive());
+        }
+
+        // A completed deposit is not waiting on anything
+        List<String> pending = JsonPath.read(api.get(admin, "/api/v1/admin/operations/pending?limit=200")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "$[*].id");
+        assertThat(pending).doesNotContain(depositId);
+
+        api.get(admin, "/api/v1/admin/operations/pending?kind=transfer").andExpect(status().isBadRequest());
+        api.get(admin, "/api/v1/admin/operations/totals?days=91").andExpect(status().isBadRequest());
+        api.get(user, "/api/v1/admin/operations/totals").andExpect(status().isForbidden());
+    }
+
+    private ResultActions suggestions(TestUser caller, String text) throws Exception {
+        return api.postJson(caller, USERS + "suggestions", """
+                {"text": "%s"}""".formatted(text));
     }
 
     private ResultActions search(TestUser caller, String email) throws Exception {

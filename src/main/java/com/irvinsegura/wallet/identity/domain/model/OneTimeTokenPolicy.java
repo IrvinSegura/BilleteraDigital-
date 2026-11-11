@@ -15,7 +15,8 @@ public record OneTimeTokenPolicy(Duration emailVerificationTtl, Duration passwor
 
     public Duration timeToLive(TokenPurpose purpose) {
         return switch (purpose) {
-            case VERIFY_EMAIL -> emailVerificationTtl;
+            // A new address is proved like the first one
+            case VERIFY_EMAIL, CHANGE_EMAIL -> emailVerificationTtl;
             case RESET_PASSWORD -> passwordResetTtl;
         };
     }

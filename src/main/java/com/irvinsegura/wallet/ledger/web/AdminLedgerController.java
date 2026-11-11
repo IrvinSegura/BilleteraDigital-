@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.ledger.web;
 
 import com.irvinsegura.wallet.ledger.application.CapitalService;
+import com.irvinsegura.wallet.ledger.domain.model.CustomerBalance;
 import com.irvinsegura.wallet.ledger.domain.model.LedgerAccount;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
@@ -53,6 +54,14 @@ class AdminLedgerController {
     }
 
     /**
+     * All the customers' money, by currency, in minor units.
+     */
+    @GetMapping("/customer-balances")
+    List<CustomerBalanceResponse> customerBalances() {
+        return capitalService.customerBalances().stream().map(CustomerBalanceResponse::from).toList();
+    }
+
+    /**
      * @param reference the bank reference of the wire that brought the money in; each is recorded once
      */
     record CapitalContributionRequest(@NotBlank @Pattern(regexp = "[A-Z]{3}") String currency,
@@ -61,6 +70,14 @@ class AdminLedgerController {
     }
 
     // Minor units on purpose: these are raw ledger figures for operators, not amounts shown to users
+    record CustomerBalanceResponse(String currency, long balanceMinor, long accounts) {
+
+        static CustomerBalanceResponse from(CustomerBalance total) {
+            return new CustomerBalanceResponse(total.balance().currency().getCurrencyCode(),
+                    total.balance().minorUnits(), total.accounts());
+        }
+    }
+
     record SystemAccountResponse(UUID id, String code, String type, String currency, long balanceMinor) {
 
         static SystemAccountResponse from(LedgerAccount account) {
@@ -68,4 +85,5 @@ class AdminLedgerController {
                     account.currency().getCurrencyCode(), account.balance().minorUnits());
         }
     }
+
 }

@@ -35,4 +35,21 @@ interface LedgerAccountJpaRepository extends JpaRepository<LedgerAccountEntity, 
                 a.id, a.type, a.currency, a.balanceMinor, a.systemCode, a.createdAt, a.version)
             from LedgerAccountEntity a where a.systemCode is not null order by a.systemCode, a.currency""")
     List<LedgerAccountRow> findSystemAccountRows();
+
+    @Query(value = """
+            SELECT currency AS currency, sum(balance_minor) AS balance, count(*) AS accounts
+            FROM ledger_accounts
+            WHERE type = 'LIABILITY' AND system_code IS NULL
+            GROUP BY currency
+            ORDER BY currency""", nativeQuery = true)
+    List<CustomerBalanceRow> sumCustomerBalances();
+
+    interface CustomerBalanceRow {
+
+        String getCurrency();
+
+        long getBalance();
+
+        long getAccounts();
+    }
 }
