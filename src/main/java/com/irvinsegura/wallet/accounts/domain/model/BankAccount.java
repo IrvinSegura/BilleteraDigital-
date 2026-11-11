@@ -11,6 +11,7 @@ import java.util.UUID;
 public class BankAccount {
 
     public static final int MAX_HOLDER_NAME_LENGTH = 100;
+    public static final int MAX_ALIAS_LENGTH = 40;
     // Limits how many destinations someone who took over an account can add before anyone notices
     public static final int MAX_ACTIVE_PER_OWNER = 5;
 
@@ -21,14 +22,16 @@ public class BankAccount {
     private final Instant createdAt;
     private final Long version;
     private Instant removedAt;
+    private String alias;
 
-    private BankAccount(UUID id, UUID ownerId, Clabe clabe, String holderName, Instant createdAt, Instant removedAt,
-            Long version) {
+    private BankAccount(UUID id, UUID ownerId, Clabe clabe, String holderName, String alias, Instant createdAt,
+            Instant removedAt, Long version) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.ownerId = Objects.requireNonNull(ownerId, "ownerId must not be null");
         this.clabe = Objects.requireNonNull(clabe, "clabe must not be null");
         this.holderName = Objects.requireNonNull(holderName, "holderName must not be null");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
+        this.alias = alias;
         this.removedAt = removedAt;
         this.version = version;
     }
@@ -42,16 +45,27 @@ public class BankAccount {
             throw new IllegalArgumentException(
                     "holderName must have between 1 and %d characters".formatted(MAX_HOLDER_NAME_LENGTH));
         }
-        return new BankAccount(UUID.randomUUID(), ownerId, clabe, name, now, null, null);
+        return new BankAccount(UUID.randomUUID(), ownerId, clabe, name, null, now, null, null);
     }
 
     /**
      * Rebuilds a bank account from storage. {@code version} is the optimistic lock value; null means not persisted
      * yet.
      */
-    public static BankAccount restore(UUID id, UUID ownerId, Clabe clabe, String holderName, Instant createdAt,
-            Instant removedAt, Long version) {
-        return new BankAccount(id, ownerId, clabe, holderName, createdAt, removedAt, version);
+    public static BankAccount restore(UUID id, UUID ownerId, Clabe clabe, String holderName, String alias,
+            Instant createdAt, Instant removedAt, Long version) {
+        return new BankAccount(id, ownerId, clabe, holderName, alias, createdAt, removedAt, version);
+    }
+
+    /**
+     * Names the account for its owner only; it never reaches the bank. A blank alias clears it.
+     */
+    public void rename(String newAlias) {
+        String trimmed = newAlias == null ? "" : newAlias.strip();
+        if (trimmed.length() > MAX_ALIAS_LENGTH) {
+            throw new IllegalArgumentException("alias must have at most %d characters".formatted(MAX_ALIAS_LENGTH));
+        }
+        alias = trimmed.isEmpty() ? null : trimmed;
     }
 
     public boolean isActive() {
@@ -87,6 +101,10 @@ public class BankAccount {
 
     public String holderName() {
         return holderName;
+    }
+
+    public String alias() {
+        return alias;
     }
 
     public Instant createdAt() {

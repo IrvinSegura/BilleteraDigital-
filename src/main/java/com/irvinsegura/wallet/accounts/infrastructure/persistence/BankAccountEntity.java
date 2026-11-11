@@ -26,6 +26,9 @@ class BankAccountEntity {
     @Column(name = "holder_name", nullable = false, updatable = false, length = 100)
     private String holderName;
 
+    @Column(length = 40)
+    private String alias;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -44,6 +47,7 @@ class BankAccountEntity {
         entity.ownerId = bankAccount.ownerId();
         entity.clabe = bankAccount.clabe().value();
         entity.holderName = bankAccount.holderName();
+        entity.alias = bankAccount.alias();
         entity.createdAt = bankAccount.createdAt();
         entity.removedAt = bankAccount.removedAt();
         entity.version = bankAccount.version();
@@ -51,6 +55,6 @@ class BankAccountEntity {
     }
 
     BankAccount toDomain() {
-        return BankAccount.restore(id, ownerId, new Clabe(clabe), holderName, createdAt, removedAt, version);
+        return BankAccount.restore(id, ownerId, new Clabe(clabe), holderName, alias, createdAt, removedAt, version);
     }
 }
