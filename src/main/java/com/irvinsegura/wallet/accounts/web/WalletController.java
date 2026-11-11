@@ -1,14 +1,15 @@
 package com.irvinsegura.wallet.accounts.web;
 
 import com.irvinsegura.wallet.accounts.application.BalanceHistory;
-import com.irvinsegura.wallet.accounts.application.MonthSummary;
 import com.irvinsegura.wallet.accounts.application.MovementCriteria;
+import com.irvinsegura.wallet.accounts.application.PeriodSummary;
 import com.irvinsegura.wallet.accounts.application.WalletLimits;
+import com.irvinsegura.wallet.accounts.application.WalletMovement;
+import com.irvinsegura.wallet.accounts.application.WalletMovementPage;
 import com.irvinsegura.wallet.accounts.application.WalletService;
 import com.irvinsegura.wallet.accounts.application.WalletSummary;
 import com.irvinsegura.wallet.ledger.AccountMovement;
 import com.irvinsegura.wallet.ledger.DailyBalance;
-import com.irvinsegura.wallet.ledger.MovementPage;
 import com.irvinsegura.wallet.shared.web.MoneyResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
@@ -16,6 +17,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -79,7 +81,8 @@ class WalletController {
 
     /**
      * Statement page, newest first. {@code from} and {@code to} are the users' calendar days, both included;
-     * {@code type} may repeat; {@code q} matches the start of the operation id. Every filter is optional.
+     * {@code type} may repeat; {@code q} matches the start of the operation id, or part of the other party's name or
+     * of the description, ignoring case and accents. Every filter is optional.
      */
     @GetMapping("/{walletId}/movements")
     MovementPageResponse movements(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID walletId,
@@ -90,10 +93,11 @@ class WalletController {
             @RequestParam(name = "type", required = false)
             Set<@Pattern(regexp = "[A-Z_]{1,40}", message = "must be an entry type") String> types,
             @RequestParam(required = false) AccountMovement.Direction direction,
-            @RequestParam(required = false)
-            @Pattern(regexp = "[0-9a-fA-F-]{1,36}", message = "must be the start of an operation id") String q) {
+            @RequestParam(required = false) @Size(max = 60)
+            @Pattern(regexp = "\\P{Cntrl}*", message = "must not have control characters") String q) {
         requireOrdered(from, to);
-        MovementCriteria criteria = new MovementCriteria(from, to, types, direction, q);
+        MovementCriteria criteria = new MovementCriteria(from, to, types, direction,
+                q == null || q.isBlank() ? null : q.strip());
         return MovementPageResponse.from(walletService.movements(walletId, userId(jwt), criteria, page, size));
     }
 
@@ -119,11 +123,12 @@ class WalletController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "A statement covers at most " + MAX_STATEMENT_DAYS + " days");
         }
-        List<AccountMovement> movements = walletService.statement(walletId, userId(jwt), from, to);
+        List<WalletMovement> movements = walletService.statement(walletId, userId(jwt), from, to);
         ZoneId zone = walletService.usersZone();
-        StringBuilder csv = new StringBuilder("posted_at,type,direction,amount,currency,balance_after,reference\r\n");
-        // Every value is a code, a number, a date or an id, so none needs quoting and none can start a formula
-        for (AccountMovement movement : movements) {
+        StringBuilder csv = new StringBuilder(
+                "posted_at,type,direction,amount,currency,balance_after,reference,counterparty,description\r\n");
+        for (WalletMovement item : movements) {
+            AccountMovement movement = item.movement();
             csv.append(movement.postedAt().atZone(zone).toOffsetDateTime().truncatedTo(ChronoUnit.SECONDS))
                     .append(',').append(movement.type())
                     .append(',').append(movement.direction())
@@ -131,6 +136,8 @@ class WalletController {
                     .append(',').append(movement.amount().currency().getCurrencyCode())
                     .append(',').append(movement.balanceAfter().toDecimal().toPlainString())
                     .append(',').append(movement.reference() == null ? "" : movement.reference())
+                    .append(',').append(csvText(item.counterpartyName()))
+                    .append(',').append(csvText(item.description()))
                     .append("\r\n");
         }
         return ResponseEntity.ok()
@@ -141,18 +148,36 @@ class WalletController {
     }
 
     /**
-     * Money in and out of the wallet in a calendar month, the current one by default, summed over every movement
-     * (a statement page would only cover its newest ones).
+     * Money in and out of the wallet in a period, summed over every movement (a statement page would only cover its
+     * newest ones): a calendar {@code month}, the current one by default, or the days from {@code from} to {@code to}
+     * (both included, at most 366 days), which take precedence when both are given.
      */
     @GetMapping("/{walletId}/summary")
     MonthSummaryResponse summary(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID walletId,
             @RequestParam(required = false)
-            @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])", message = "must be a month as yyyy-MM") String month) {
-        YearMonth period = month == null ? walletService.currentMonth() : YearMonth.parse(month);
-        MonthSummary summary = walletService.monthSummary(walletId, userId(jwt), period);
-        return new MonthSummaryResponse(period.toString(), MoneyResponse.from(summary.openingBalance()),
-                MoneyResponse.from(summary.moneyIn()), MoneyResponse.from(summary.moneyOut()),
-                MoneyResponse.from(summary.closingBalance()));
+            @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])", message = "must be a month as yyyy-MM") String month,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        if ((from == null) != (to == null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from and to go together");
+        }
+        String monthLabel = null;
+        if (from == null) {
+            YearMonth period = month == null ? walletService.currentMonth() : YearMonth.parse(month);
+            monthLabel = period.toString();
+            from = period.atDay(1);
+            to = period.atEndOfMonth();
+        } else {
+            requireOrdered(from, to);
+            if (ChronoUnit.DAYS.between(from, to) >= MAX_STATEMENT_DAYS) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A summary covers at most " + MAX_STATEMENT_DAYS + " days");
+            }
+        }
+        PeriodSummary summary = walletService.periodSummary(walletId, userId(jwt), from, to);
+        return new MonthSummaryResponse(monthLabel, summary.from(), summary.to(),
+                MoneyResponse.from(summary.openingBalance()), MoneyResponse.from(summary.moneyIn()),
+                MoneyResponse.from(summary.moneyOut()), MoneyResponse.from(summary.closingBalance()));
     }
 
     /**
@@ -178,6 +203,16 @@ class WalletController {
                 limits.resetsAt());
     }
 
+    // What people typed, unlike every other column: it may hold quotes or commas, and a cell starting with one of
+    // these characters would run as a formula when the file is opened in a spreadsheet
+    private static String csvText(String text) {
+        if (text == null) {
+            return "";
+        }
+        String safe = !text.isEmpty() && "=+-@\t\r".indexOf(text.charAt(0)) >= 0 ? "'" + text : text;
+        return '"' + safe.replace("\"", "\"\"") + '"';
+    }
+
     private static void requireOrdered(LocalDate from, LocalDate to) {
         if (from != null && to != null && from.isAfter(to)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from must not be after to");
@@ -201,24 +236,29 @@ class WalletController {
     }
 
     /**
-     * {@code operationId} is the id of the deposit or transfer that caused the movement.
+     * {@code operationId} is the id of the deposit or transfer that caused the movement. A transfer also has the
+     * other party's {@code counterpartyName} and the {@code description} its sender wrote, if any.
      */
     record MovementResponse(UUID transactionId, String type, String operationId, String direction,
-            MoneyResponse amount, MoneyResponse balanceAfter, Instant createdAt) {
+            MoneyResponse amount, MoneyResponse balanceAfter, Instant createdAt, String counterpartyName,
+            String description) {
 
-        static MovementResponse from(AccountMovement movement) {
+        static MovementResponse from(WalletMovement item) {
+            AccountMovement movement = item.movement();
             return new MovementResponse(movement.journalEntryId(), movement.type(), movement.reference(),
                     movement.direction().name(), MoneyResponse.from(movement.amount()),
-                    MoneyResponse.from(movement.balanceAfter()), movement.postedAt());
+                    MoneyResponse.from(movement.balanceAfter()), movement.postedAt(), item.counterpartyName(),
+                    item.description());
         }
     }
 
     /**
-     * {@code month} is {@code yyyy-MM}, in the zone that sets when the users' days start. {@code closingBalance} is
-     * the balance so far while the month is not over.
+     * {@code month} is {@code yyyy-MM} when a month was asked for, and {@code null} for a period of days; {@code from}
+     * and {@code to} are its first and last days either way, in the zone that sets when the users' days start.
+     * {@code closingBalance} is the balance so far while the period is not over.
      */
-    record MonthSummaryResponse(String month, MoneyResponse openingBalance, MoneyResponse moneyIn,
-            MoneyResponse moneyOut, MoneyResponse closingBalance) {
+    record MonthSummaryResponse(String month, LocalDate from, LocalDate to, MoneyResponse openingBalance,
+            MoneyResponse moneyIn, MoneyResponse moneyOut, MoneyResponse closingBalance) {
     }
 
     /**
@@ -244,7 +284,7 @@ class WalletController {
 
     record MovementPageResponse(List<MovementResponse> items, int page, int size, boolean hasNext) {
 
-        static MovementPageResponse from(MovementPage page) {
+        static MovementPageResponse from(WalletMovementPage page) {
             return new MovementPageResponse(page.items().stream().map(MovementResponse::from).toList(),
                     page.page(), page.size(), page.hasNext());
         }
