@@ -6,5 +6,7 @@ package com.irvinsegura.wallet.identity.domain.model;
  */
 public enum TokenPurpose {
     VERIFY_EMAIL,
-    RESET_PASSWORD
+    RESET_PASSWORD,
+    // Carries the new address, which replaces the old one only when the link reaches it
+    CHANGE_EMAIL
 }
