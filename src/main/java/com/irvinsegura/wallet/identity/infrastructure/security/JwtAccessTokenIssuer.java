@@ -36,6 +36,7 @@ class JwtAccessTokenIssuer implements AccessTokenIssuer {
                 .id(UUID.randomUUID().toString())
                 .claim(AccessToken.ROLES_CLAIM, List.of(user.role().name()))
                 .claim(AccessToken.TWO_FACTOR_CLAIM, twoFactorEnabled)
+                .claim(AccessToken.PASSWORD_CHANGE_CLAIM, user.mustChangePassword())
                 .claim(AccessToken.SESSION_CLAIM, sessionId.toString())
                 .build();
         JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
