@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.accounts.infrastructure.persistence;
 
 import com.irvinsegura.wallet.accounts.domain.model.Wallet;
 import com.irvinsegura.wallet.accounts.domain.model.WalletAlreadyExistsException;
+import com.irvinsegura.wallet.accounts.domain.model.WalletStatus;
 import com.irvinsegura.wallet.accounts.domain.port.WalletRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -12,6 +13,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -57,6 +60,22 @@ class WalletPersistenceAdapter implements WalletRepository {
     @Override
     public List<Wallet> findByOwner(UUID ownerId) {
         return jpaRepository.findByOwnerIdOrderByCreatedAt(ownerId).stream().map(WalletEntity::toDomain).toList();
+    }
+
+    @Override
+    public List<Wallet> findByIdStart(String idStart, int limit) {
+        return jpaRepository.findByIdStart(idStart + "%", limit).stream().map(WalletEntity::toDomain).toList();
+    }
+
+    @Override
+    public WalletSlice findPage(WalletStatus status, int page, int size) {
+        Slice<WalletEntity> slice = jpaRepository.findPage(status, PageRequest.of(page, size));
+        return new WalletSlice(slice.getContent().stream().map(WalletEntity::toDomain).toList(), slice.hasNext());
+    }
+
+    @Override
+    public WalletCounts count() {
+        return new WalletCounts(jpaRepository.count(), jpaRepository.countByStatus(WalletStatus.FROZEN));
     }
 
     @Override

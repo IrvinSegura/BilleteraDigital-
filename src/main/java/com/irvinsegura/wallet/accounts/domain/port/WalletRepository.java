@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.accounts.domain.port;
 
 import com.irvinsegura.wallet.accounts.domain.model.Wallet;
+import com.irvinsegura.wallet.accounts.domain.model.WalletStatus;
 import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
@@ -23,6 +24,21 @@ public interface WalletRepository {
 
     List<Wallet> findByOwner(UUID ownerId);
 
+    /**
+     * The newest wallets whose id starts with the text, in lower case.
+     */
+    List<Wallet> findByIdStart(String idStart, int limit);
+
+    /**
+     * A page of wallets, the newest first, only those with the status when given.
+     */
+    WalletSlice findPage(WalletStatus status, int page, int size);
+
+    /**
+     * How many wallets there are, and how many of them are frozen.
+     */
+    WalletCounts count();
+
     Optional<Wallet> findByOwnerAndCurrency(UUID ownerId, Currency currency);
 
     boolean existsByOwnerAndCurrency(UUID ownerId, Currency currency);
@@ -31,4 +47,10 @@ public interface WalletRepository {
      * Throws {@code WalletAlreadyExistsException} when the owner already has a wallet in that currency.
      */
     void save(Wallet wallet);
+
+    record WalletSlice(List<Wallet> items, boolean hasNext) {
+    }
+
+    record WalletCounts(long total, long frozen) {
+    }
 }
