@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.identity.infrastructure.security;
 
 import com.irvinsegura.wallet.identity.domain.model.LockoutPolicy;
 import com.irvinsegura.wallet.identity.domain.model.OneTimeTokenPolicy;
+import com.irvinsegura.wallet.identity.domain.model.IdentityVerificationPolicy;
 import com.irvinsegura.wallet.identity.domain.model.RefreshTokenPolicy;
 import com.irvinsegura.wallet.identity.domain.port.BreachedPasswords;
 import com.irvinsegura.wallet.identity.domain.port.HumanVerifier;
@@ -18,6 +19,12 @@ class IdentityConfiguration {
     @Bean
     LockoutPolicy lockoutPolicy(IdentityProperties properties) {
         return new LockoutPolicy(properties.lockout().maxFailedAttempts(), properties.lockout().duration());
+    }
+
+    @Bean
+    IdentityVerificationPolicy identityVerificationPolicy(IdentityProperties properties) {
+        IdentityProperties.Verification verification = properties.verification();
+        return new IdentityVerificationPolicy(verification.requiredForWithdrawals(), verification.maxAttemptsPerDay());
     }
 
     @Bean
