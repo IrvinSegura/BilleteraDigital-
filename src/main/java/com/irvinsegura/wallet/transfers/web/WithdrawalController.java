@@ -15,6 +15,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -59,6 +60,18 @@ class WithdrawalController {
             @PathVariable UUID withdrawalId) {
         return WithdrawalResponse.from(
                 withdrawalService.getWithdrawal(UUID.fromString(jwt.getSubject()), walletId, withdrawalId));
+    }
+
+    /**
+     * The currencies withdrawals can be made in. A wallet in another one can't withdraw ({@code 422
+     * WITHDRAWAL_CURRENCY_NOT_SUPPORTED}): STP, for one, pays only pesos.
+     */
+    @GetMapping("/api/v1/withdrawals/currencies")
+    WithdrawalCurrenciesResponse currencies() {
+        return new WithdrawalCurrenciesResponse(withdrawalService.payableCurrencies());
+    }
+
+    record WithdrawalCurrenciesResponse(List<String> currencies) {
     }
 
     private static HttpStatus statusFor(WithdrawalStatus status) {

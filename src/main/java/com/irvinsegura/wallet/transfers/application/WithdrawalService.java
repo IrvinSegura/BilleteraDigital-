@@ -14,8 +14,13 @@ import com.irvinsegura.wallet.transfers.domain.model.IdempotencyRecord;
 import com.irvinsegura.wallet.transfers.domain.model.InvalidPayoutDestinationException;
 import com.irvinsegura.wallet.transfers.domain.model.PayoutProviderUnavailableException;
 import com.irvinsegura.wallet.transfers.domain.model.Withdrawal;
+import com.irvinsegura.wallet.transfers.domain.model.DepositPolicy;
+import com.irvinsegura.wallet.transfers.domain.model.WithdrawalCurrencyNotSupportedException;
 import com.irvinsegura.wallet.transfers.domain.model.WithdrawalNotFoundException;
+import com.irvinsegura.wallet.transfers.domain.port.PayoutGateway;
 import com.irvinsegura.wallet.transfers.domain.port.WithdrawalRepository;
+import java.util.Currency;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -46,11 +51,14 @@ public class WithdrawalService {
     private final WithdrawalRepository withdrawalRepository;
     private final IdempotentExecutor idempotentExecutor;
     private final WithdrawalSettlement settlement;
+    private final PayoutGateway payouts;
+    private final DepositPolicy depositPolicy;
     private final ApplicationEventPublisher events;
 
     WithdrawalService(Wallets wallets, BankAccounts bankAccounts, UserDirectory users, Ledger ledger,
             WithdrawalRepository withdrawalRepository, IdempotentExecutor idempotentExecutor,
-            WithdrawalSettlement settlement, ApplicationEventPublisher events) {
+            WithdrawalSettlement settlement, PayoutGateway payouts, DepositPolicy depositPolicy,
+            ApplicationEventPublisher events) {
         this.wallets = wallets;
         this.bankAccounts = bankAccounts;
         this.users = users;
@@ -58,6 +66,8 @@ public class WithdrawalService {
         this.withdrawalRepository = withdrawalRepository;
         this.idempotentExecutor = idempotentExecutor;
         this.settlement = settlement;
+        this.payouts = payouts;
+        this.depositPolicy = depositPolicy;
         this.events = events;
     }
 
@@ -98,11 +108,14 @@ public class WithdrawalService {
 
     private WithdrawalReceipt request(UUID withdrawalId, WithdrawalCommand command) {
         // Locks the account until commit: a disable in progress is waited for and wins
-        users.authorizeOutgoingMoney(command.userId());
+        users.authorizeWithdrawal(command.userId());
         WalletInfo wallet = wallets.getOwnedWallet(command.walletId(), command.userId());
         Money amount = Money.of(command.amount(), wallet.currency().getCurrencyCode());
         if (amount.isZero()) {
             throw new InvalidAmountException("Amount must be greater than zero");
+        }
+        if (!payouts.pays(wallet.currency())) {
+            throw new WithdrawalCurrencyNotSupportedException(wallet.currency().getCurrencyCode());
         }
         requireDestination(wallet, command);
         // Locks the wallet and checks it is active and within today's limit
@@ -119,6 +132,19 @@ public class WithdrawalService {
         events.publishEvent(new WithdrawalRequested(withdrawalId, command.userId(), wallet.id(), amount.minorUnits(),
                 wallet.currency().getCurrencyCode(), entry.postedAt()));
         return WithdrawalReceipt.from(withdrawal);
+    }
+
+    /**
+     * The currencies withdrawals can be made in, so a wallet in any other offers none: those wallets hold money in,
+     * and the payout provider pays only some of them.
+     */
+    public List<String> payableCurrencies() {
+        // Every currency wallets are opened in has its deposit cap
+        return depositPolicy.maxPerDeposit().keySet().stream()
+                .filter(payouts::pays)
+                .map(Currency::getCurrencyCode)
+                .sorted()
+                .toList();
     }
 
     private void requireDestination(WalletInfo wallet, WithdrawalCommand command) {
