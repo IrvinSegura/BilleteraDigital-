@@ -22,7 +22,7 @@
         <spring-modulith.version>2.1.2</spring-modulith.version>
         <springdoc.version>3.2.0</springdoc.version>
         <archunit.version>1.5.1</archunit.version>
-        <bucket4j.version>8.21.0</bucket4j.version>
+        <bucket4j.version>8.22.0</bucket4j.version>
         <datasource-micrometer.version>2.3.0</datasource-micrometer.version>
     </properties>
 
