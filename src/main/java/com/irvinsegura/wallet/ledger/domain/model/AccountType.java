@@ -11,7 +11,9 @@ public enum AccountType {
     // What the platform's owners put in, e.g. capital that funds payouts before the provider pays out deposits
     EQUITY(Side.CREDIT),
     // What the platform spent, e.g. the payment provider's fees
-    EXPENSE(Side.DEBIT);
+    EXPENSE(Side.DEBIT),
+    // What the platform earned, e.g. money an administrator took back from a wallet credited by mistake
+    REVENUE(Side.CREDIT);
 
     private final Side normalSide;
 

@@ -85,6 +85,18 @@ public class LedgerService implements Ledger {
         return systemAccount(LedgerAccount.PROVIDER_FEES, currency);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public UUID customerAdjustmentsAccount(Currency currency) {
+        return systemAccount(LedgerAccount.CUSTOMER_ADJUSTMENTS, currency);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UUID adjustmentRecoveriesAccount(Currency currency) {
+        return systemAccount(LedgerAccount.ADJUSTMENT_RECOVERIES, currency);
+    }
+
     private UUID systemAccount(String systemCode, Currency currency) {
         return accountRepository.findSystemAccount(systemCode, currency)
                 .map(LedgerAccount::id)
@@ -150,7 +162,7 @@ public class LedgerService implements Ledger {
         }
         JournalEntryRepository.MovementSlice slice = journalEntryRepository.findMovements(accountId,
                 new JournalEntryRepository.MovementQuery(filter.from(), filter.to(), filter.types(), side,
-                        filter.referencePrefix()),
+                        filter.referencePrefix(), filter.references()),
                 page, size);
         List<AccountMovement> items = slice.items().stream()
                 .map(movement -> toAccountMovement(account, movement))
