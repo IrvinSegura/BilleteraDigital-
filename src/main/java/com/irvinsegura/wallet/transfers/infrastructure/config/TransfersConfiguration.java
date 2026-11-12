@@ -1,6 +1,7 @@
 package com.irvinsegura.wallet.transfers.infrastructure.config;
 
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.transfers.domain.model.AdjustmentPolicy;
 import com.irvinsegura.wallet.transfers.domain.model.DepositPolicy;
 import com.irvinsegura.wallet.transfers.domain.model.StepUpPolicy;
 import java.math.BigDecimal;
@@ -23,6 +24,11 @@ class TransfersConfiguration {
     @Bean
     StepUpPolicy stepUpPolicy(TransfersProperties properties) {
         return new StepUpPolicy(byCurrency(properties.stepUpExemptBelow()));
+    }
+
+    @Bean
+    AdjustmentPolicy adjustmentPolicy(TransfersProperties properties) {
+        return new AdjustmentPolicy(byCurrency(properties.adjustmentSingleApprovalUpTo()));
     }
 
     // Money.of rejects amounts with more decimals than the currency allows, failing fast at startup
