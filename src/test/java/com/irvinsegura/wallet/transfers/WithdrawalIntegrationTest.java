@@ -106,6 +106,9 @@ class WithdrawalIntegrationTest {
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("BANK_ACCOUNT_NOT_SUPPORTED"));
         api.withdrawTo(user, usdWallet, "10.00", newKey(), null).andExpect(status().isCreated());
+        // The provider these tests use pays both
+        api.get(user, "/api/v1/withdrawals/currencies").andExpect(jsonPath("$.currencies[0]").value("MXN"))
+                .andExpect(jsonPath("$.currencies[1]").value("USD"));
     }
 
     @Test

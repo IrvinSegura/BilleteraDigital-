@@ -6,21 +6,32 @@ import com.irvinsegura.wallet.accounts.WalletOpened;
 import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.audit.domain.model.AuditEntry;
 import com.irvinsegura.wallet.audit.domain.port.AuditLogRepository;
+import com.irvinsegura.wallet.identity.AccountClosed;
+import com.irvinsegura.wallet.identity.EmailChanged;
 import com.irvinsegura.wallet.identity.EmailVerified;
+import com.irvinsegura.wallet.identity.IdentityVerificationReviewed;
+import com.irvinsegura.wallet.identity.IdentityVerificationSubmitted;
 import com.irvinsegura.wallet.identity.PasswordChanged;
 import com.irvinsegura.wallet.identity.PasswordResetRequested;
 import com.irvinsegura.wallet.identity.ProfileUpdated;
 import com.irvinsegura.wallet.identity.SessionsRevoked;
+import com.irvinsegura.wallet.identity.StaffAccountCreated;
 import com.irvinsegura.wallet.identity.TwoFactorDisabled;
 import com.irvinsegura.wallet.identity.TwoFactorEnabled;
 import com.irvinsegura.wallet.identity.UserLockedOut;
 import com.irvinsegura.wallet.identity.UserRegistered;
 import com.irvinsegura.wallet.identity.UserSignedIn;
+import com.irvinsegura.wallet.identity.UserRoleChanged;
 import com.irvinsegura.wallet.identity.UserStatusChanged;
 import com.irvinsegura.wallet.identity.UserUnlocked;
 import com.irvinsegura.wallet.ledger.CapitalContributed;
 import com.irvinsegura.wallet.payments.ProviderTransactionResolved;
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.support.SupportTicketOpened;
+import com.irvinsegura.wallet.support.SupportTicketResolved;
+import com.irvinsegura.wallet.transfers.AdjustmentApplied;
+import com.irvinsegura.wallet.transfers.AdjustmentRejected;
+import com.irvinsegura.wallet.transfers.AdjustmentRequested;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.DepositRejected;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
@@ -90,6 +101,18 @@ class AuditEventListener {
     }
 
     @ApplicationModuleListener
+    void on(EmailChanged event) {
+        auditLog.append(AuditEntry.of("EMAIL_CHANGED", event.userId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.userId(), USER, event.userId(), "all sessions ended"));
+    }
+
+    @ApplicationModuleListener
+    void on(AccountClosed event) {
+        auditLog.append(AuditEntry.of("ACCOUNT_CLOSED", event.userId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.userId(), USER, event.userId(), "closed by its owner"));
+    }
+
+    @ApplicationModuleListener
     void on(ProfileUpdated event) {
         auditLog.append(AuditEntry.of("PROFILE_UPDATED", event.userId() + "@" + event.occurredAt(),
                 event.occurredAt(), event.userId(), USER, event.userId(), String.join(", ", event.fields())));
@@ -118,6 +141,47 @@ class AuditEventListener {
     void on(UserUnlocked event) {
         auditLog.append(AuditEntry.of("USER_UNLOCKED", event.userId() + "@" + event.occurredAt(), event.occurredAt(),
                 event.unlockedBy(), USER, event.userId(), "reason: " + event.reason()));
+    }
+
+    @ApplicationModuleListener
+    void on(IdentityVerificationSubmitted event) {
+        auditLog.append(AuditEntry.of("IDENTITY_VERIFICATION_SUBMITTED", event.verificationId().toString(),
+                event.occurredAt(), event.userId(), USER, event.userId(), "document INE"));
+    }
+
+    @ApplicationModuleListener
+    void on(IdentityVerificationReviewed event) {
+        String action = "VERIFIED".equals(event.status()) ? "IDENTITY_VERIFIED" : "IDENTITY_REJECTED";
+        auditLog.append(AuditEntry.of(action, event.verificationId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.reviewedBy(), USER, event.userId(),
+                event.reason() == null ? "approved" : "reason: " + event.reason()));
+    }
+
+    @ApplicationModuleListener
+    void on(StaffAccountCreated event) {
+        auditLog.append(AuditEntry.of("STAFF_ACCOUNT_CREATED", event.userId().toString(), event.occurredAt(),
+                event.createdBy(), USER, event.userId(), "role: " + event.role() + ", reason: " + event.reason()));
+    }
+
+    @ApplicationModuleListener
+    void on(SupportTicketOpened event) {
+        auditLog.append(AuditEntry.of("SUPPORT_TICKET_OPENED", event.ticketId().toString(), event.occurredAt(),
+                event.agentId(), USER, event.userId(),
+                event.operationId() == null ? "ticket " + event.ticketId() + ": " + event.category().toLowerCase()
+                        : "ticket " + event.ticketId() + ": " + event.operationKind() + " " + event.operationId()));
+    }
+
+    @ApplicationModuleListener
+    void on(SupportTicketResolved event) {
+        auditLog.append(AuditEntry.of("SUPPORT_TICKET_RESOLVED", event.ticketId() + "@" + event.occurredAt(),
+                event.occurredAt(), event.adminId(), USER, event.userId(),
+                "ticket " + event.ticketId() + ", resolution: " + event.resolution()));
+    }
+
+    @ApplicationModuleListener
+    void on(UserRoleChanged event) {
+        auditLog.append(AuditEntry.of("USER_ROLE_CHANGED", event.userId() + "@" + event.occurredAt(), event.occurredAt(),
+                event.changedBy(), USER, event.userId(), "role: " + event.role() + ", reason: " + event.reason()));
     }
 
     @ApplicationModuleListener
@@ -194,6 +258,29 @@ class AuditEventListener {
     }
 
     // No actor: the bank refused the payout, and the money went back to the wallet
+    @ApplicationModuleListener
+    void on(AdjustmentRequested event) {
+        auditLog.append(AuditEntry.of("ADJUSTMENT_REQUESTED", event.adjustmentId().toString(), event.occurredAt(),
+                event.requestedBy(), WALLET, event.walletId(), "adjustment %s: %s %s, reason: %s".formatted(
+                        event.adjustmentId(), event.direction().toLowerCase(), money(event.amountMinor(),
+                                event.currency()), event.reason())));
+    }
+
+    @ApplicationModuleListener
+    void on(AdjustmentApplied event) {
+        auditLog.append(AuditEntry.of("ADJUSTMENT_APPLIED", event.adjustmentId() + "@applied", event.occurredAt(),
+                event.approvedBy(), WALLET, event.walletId(), "adjustment %s: %s %s, reason: %s".formatted(
+                        event.adjustmentId(), event.direction().toLowerCase(), money(event.amountMinor(),
+                                event.currency()), event.reason())));
+    }
+
+    @ApplicationModuleListener
+    void on(AdjustmentRejected event) {
+        auditLog.append(AuditEntry.of("ADJUSTMENT_REJECTED", event.adjustmentId() + "@rejected", event.occurredAt(),
+                event.rejectedBy(), USER, event.userId(), "adjustment %s, reason: %s".formatted(event.adjustmentId(),
+                        event.reason())));
+    }
+
     @ApplicationModuleListener
     void on(WithdrawalFailed event) {
         auditLog.append(AuditEntry.of("WITHDRAWAL_FAILED", event.withdrawalId().toString(), event.occurredAt(),

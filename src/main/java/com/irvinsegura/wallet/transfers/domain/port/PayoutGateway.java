@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.transfers.domain.port;
 
 import com.irvinsegura.wallet.transfers.domain.model.PayoutOrder;
 import com.irvinsegura.wallet.transfers.domain.model.PayoutResult;
+import java.util.Currency;
 
 /**
  * Sends money to the user's bank. Implementations throw
@@ -17,4 +18,12 @@ public interface PayoutGateway {
     PayoutResult send(PayoutOrder order);
 
     PayoutResult check(String reference);
+
+    /**
+     * Whether this provider can pay withdrawals in the currency. Withdrawals it can't pay are refused before any
+     * money leaves the wallet.
+     */
+    default boolean pays(Currency currency) {
+        return true;
+    }
 }

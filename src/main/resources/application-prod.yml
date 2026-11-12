@@ -67,9 +67,16 @@ wallet:
       app-url: ${APP_URL}
   transfers:
     payouts:
-      # No default: the only payout provider so far is simulated, which sends no real money; set
-      # PAYOUT_PROVIDER=simulated only for demo deployments
+      # No default: stp pays by SPEI (needs the STP_* variables), openpay through Openpay (the OPENPAY_* ones),
+      # simulated sends no real money and is only for demo deployments
       provider: ${PAYOUT_PROVIDER:}
+      stp:
+        # No default either, so production never sends payouts to STP's demo: STP gives the URLs with the account
+        orders-url: ${STP_ORDERS_URL:}
+        query-url: ${STP_QUERY_URL:}
+      openpay:
+        # Required too, so production never pays from the sandbox: https://api.openpay.mx
+        url: ${OPENPAY_URL:}
   payments:
     # stripe needs STRIPE_API_KEY and STRIPE_WEBHOOK_SECRET; simulated is only for demo deployments without real money
     provider: ${PAYMENT_PROVIDER:stripe}

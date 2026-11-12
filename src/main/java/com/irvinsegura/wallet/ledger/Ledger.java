@@ -60,6 +60,20 @@ public interface Ledger {
     UUID providerFeesAccount(Currency currency);
 
     /**
+     * Expense recording what administrators credited to wallets to settle customers' problems.
+     *
+     * @throws UnsupportedCurrencyException if the currency is not supported
+     */
+    UUID customerAdjustmentsAccount(Currency currency);
+
+    /**
+     * Revenue recording what administrators took back from wallets, e.g. money credited twice.
+     *
+     * @throws UnsupportedCurrencyException if the currency is not supported
+     */
+    UUID adjustmentRecoveriesAccount(Currency currency);
+
+    /**
      * Records a balanced entry and updates both balances. Accounts are locked in a fixed order, so concurrent
      * entries touching the same accounts never deadlock.
      *

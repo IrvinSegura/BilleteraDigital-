@@ -15,7 +15,7 @@ class SimulatedPayoutGateway implements PayoutGateway {
 
     @Override
     public PayoutResult send(PayoutOrder order) {
-        return PayoutResult.paid("sim_po_" + order.withdrawalId());
+        return PayoutResult.paid("int_po_" + order.withdrawalId());
     }
 
     @Override

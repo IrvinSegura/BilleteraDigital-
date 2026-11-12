@@ -2,6 +2,7 @@ package com.irvinsegura.wallet.support;
 
 import static com.irvinsegura.wallet.support.Eventually.assertEventually;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,6 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -53,6 +55,15 @@ public final class ApiClient {
         return login(email, PASSWORD);
     }
 
+    public void rename(TestUser user, String fullName) throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me")
+                .header("Authorization", user.bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"fullName": "%s"}""".formatted(fullName)))
+                .andExpect(status().isOk());
+    }
+
     /**
      * Signs up a new address without following the emailed link, so the account exists but cannot sign in yet.
      *
@@ -66,6 +77,7 @@ public final class ApiClient {
 
     public ResultActions register(String email) throws Exception {
         return mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.ACCEPT_LANGUAGE, "en")
                 .content("""
                         {"email": "%s", "password": "%s", "fullName": "Ana López"}""".formatted(email, PASSWORD)));
     }
@@ -242,6 +254,20 @@ public final class ApiClient {
                 .content("""
                         {"sourceWalletId": "%s", "recipientEmail": "%s", "amount": %s, "description": "Dinner"%s}"""
                         .formatted(sourceWalletId, recipientEmail, amount, members(stepUp))));
+    }
+
+    /**
+     * A transfer with its own description instead of the usual one; {@code description} goes into a JSON string as is.
+     */
+    public ResultActions transferWithDescription(TestUser user, String sourceWalletId, String recipientEmail,
+            String amount, String description) throws Exception {
+        return mockMvc.perform(post("/api/v1/transfers")
+                .header("Authorization", user.bearer())
+                .header("Idempotency-Key", newKey())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"sourceWalletId": "%s", "recipientEmail": "%s", "amount": %s, "description": "%s"%s}"""
+                        .formatted(sourceWalletId, recipientEmail, amount, description, members(WITH_PASSWORD))));
     }
 
     public static String withCode(String code) {

@@ -12,8 +12,8 @@ services:
       DB_APP_USER: ${DB_APP_USER:-wallet_app}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD:-wallet_app_dev}
     ports:
-      # 5433 on the host so it can run next to other local PostgreSQL instances
-      - "${DB_PORT:-5433}:5432"
+      # 5440 on the host so it can run next to other local PostgreSQL instances (5432, 5433)
+      - "${DB_PORT:-5440}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -54,8 +54,8 @@ services:
       # Simulated unless Stripe test keys are given, e.g. PAYMENT_PROVIDER=stripe with STRIPE_API_KEY=sk_test_...
       # and the STRIPE_WEBHOOK_SECRET printed by `stripe listen`
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-simulated}
-      # Withdrawals are simulated: no real payout provider is integrated yet
-      PAYOUT_PROVIDER: simulated
+      # Withdrawals are simulated; stp or openpay pay real ones and need their variables (see the README)
+      PAYOUT_PROVIDER: ${PAYOUT_PROVIDER:-simulated}
       STRIPE_API_KEY: ${STRIPE_API_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       # Traces go to Tempo when the observability profile is running too

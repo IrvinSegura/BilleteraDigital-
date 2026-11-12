@@ -23,6 +23,10 @@ public class LedgerAccount {
     public static final String UNAPPLIED_PAYMENTS = "UNAPPLIED_PAYMENTS";
     public static final String PROVIDER_FEES = "PROVIDER_FEES";
     public static final String PLATFORM_CAPITAL = "PLATFORM_CAPITAL";
+    // What administrators credited to wallets to settle a customer's problem (an expense)
+    public static final String CUSTOMER_ADJUSTMENTS = "CUSTOMER_ADJUSTMENTS";
+    // What administrators took back from wallets, e.g. money credited twice (revenue)
+    public static final String ADJUSTMENT_RECOVERIES = "ADJUSTMENT_RECOVERIES";
 
     private final UUID id;
     private final AccountType type;

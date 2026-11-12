@@ -1,9 +1,13 @@
 package com.irvinsegura.wallet.notifications.application;
 
 import com.irvinsegura.wallet.accounts.BankAccountAdded;
+import com.irvinsegura.wallet.accounts.BankAccountRemoved;
 import com.irvinsegura.wallet.accounts.WalletStatusChanged;
 import com.irvinsegura.wallet.accounts.Wallets;
+import com.irvinsegura.wallet.identity.IdentityVerificationReviewed;
 import com.irvinsegura.wallet.identity.PasswordChanged;
+import com.irvinsegura.wallet.identity.ProfileUpdated;
+import com.irvinsegura.wallet.identity.SessionsRevoked;
 import com.irvinsegura.wallet.identity.TwoFactorDisabled;
 import com.irvinsegura.wallet.identity.TwoFactorEnabled;
 import com.irvinsegura.wallet.identity.UserContact;
@@ -11,8 +15,14 @@ import com.irvinsegura.wallet.identity.UserDirectory;
 import com.irvinsegura.wallet.identity.UserLockedOut;
 import com.irvinsegura.wallet.identity.UserRegistered;
 import com.irvinsegura.wallet.identity.UserStatusChanged;
+import com.irvinsegura.wallet.identity.UserUnlocked;
 import com.irvinsegura.wallet.notifications.domain.model.NotificationMessages;
 import com.irvinsegura.wallet.shared.domain.Money;
+import com.irvinsegura.wallet.support.SupportAgentReplied;
+import com.irvinsegura.wallet.support.SupportCaseAssigned;
+import com.irvinsegura.wallet.support.SupportCaseResolved;
+import com.irvinsegura.wallet.support.SupportTicketResolved;
+import com.irvinsegura.wallet.transfers.AdjustmentApplied;
 import com.irvinsegura.wallet.transfers.DepositCompleted;
 import com.irvinsegura.wallet.transfers.DepositRejected;
 import com.irvinsegura.wallet.transfers.TransferCompleted;
@@ -41,6 +51,49 @@ class NotificationEventListener {
         this.notifications = notifications;
         this.users = users;
         this.wallets = wallets;
+    }
+
+    @ApplicationModuleListener
+    void on(SupportCaseAssigned event) {
+        notifications.deliver(NotificationMessages.supportCaseAssigned(event.conversationId(), event.agentId(),
+                event.occurredAt()));
+        notifications.deliver(NotificationMessages.supportAgentJoined(event.conversationId(), event.userId(),
+                event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(SupportAgentReplied event) {
+        notifications.deliver(NotificationMessages.supportAgentReplied(event.conversationId(), event.userId(),
+                event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(SupportCaseResolved event) {
+        notifications.deliver(NotificationMessages.supportCaseResolved(event.conversationId(), event.userId(),
+                event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(SupportTicketResolved event) {
+        notifications.deliver(NotificationMessages.supportTicketResolved(event.ticketId(), event.userId(),
+                event.resolution(), event.occurredAt()));
+        notifications.deliver(NotificationMessages.supportEscalationResolved(event.ticketId(), event.openedBy(),
+                event.resolution(), event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(AdjustmentApplied event) {
+        notifications.deliver(NotificationMessages.walletAdjusted(event.adjustmentId(), event.userId(),
+                "CREDIT".equals(event.direction()), Money.ofMinor(event.amountMinor(), event.currency()),
+                event.reason(), event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(IdentityVerificationReviewed event) {
+        notifications.deliver("VERIFIED".equals(event.status())
+                ? NotificationMessages.identityVerified(event.verificationId(), event.userId(), event.occurredAt())
+                : NotificationMessages.identityRejected(event.verificationId(), event.userId(), event.reason(),
+                        event.occurredAt()));
     }
 
     @ApplicationModuleListener
@@ -122,6 +175,32 @@ class NotificationEventListener {
     void on(BankAccountAdded event) {
         notifications.deliver(NotificationMessages.bankAccountAdded(event.bankAccountId(), event.ownerId(),
                 event.clabeLastFour(), event.occurredAt()));
+    }
+
+    // Also emailed, like an account added: a withdrawal must only go where the owner chose
+    @ApplicationModuleListener
+    void on(BankAccountRemoved event) {
+        notifications.deliver(NotificationMessages.bankAccountRemoved(event.bankAccountId(), event.ownerId(),
+                event.clabeLastFour(), event.occurredAt()));
+    }
+
+    // Only the phone: a new name is no risk, while the phone is how support confirms who is calling
+    @ApplicationModuleListener
+    void on(ProfileUpdated event) {
+        if (event.fields().contains("PHONE")) {
+            notifications.deliver(NotificationMessages.phoneChanged(event.userId(), event.occurredAt()));
+        }
+    }
+
+    @ApplicationModuleListener
+    void on(UserUnlocked event) {
+        notifications.deliver(NotificationMessages.accountUnlocked(event.userId(), event.occurredAt()));
+    }
+
+    @ApplicationModuleListener
+    void on(SessionsRevoked event) {
+        notifications.deliver(NotificationMessages.sessionsRevoked(event.userId(), event.count(),
+                event.occurredAt()));
     }
 
     @ApplicationModuleListener
