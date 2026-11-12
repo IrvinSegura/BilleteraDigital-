@@ -32,7 +32,7 @@ public class SimulatedPaymentGateway implements PaymentGateway {
 
     @Override
     public CheckoutSession openCheckout(Payment payment) {
-        return new CheckoutSession("sim_cs_" + payment.id(), null, null, "sim_pi_" + payment.id());
+        return new CheckoutSession("int_cs_" + payment.id(), null, null, "int_pi_" + payment.id());
     }
 
     // Simulated checkouts are paid when opened, so none is ever left waiting to be checked or expired
@@ -48,7 +48,7 @@ public class SimulatedPaymentGateway implements PaymentGateway {
 
     @Override
     public String refund(Payment payment) {
-        return "sim_re_" + payment.id();
+        return "int_re_" + payment.id();
     }
 
     @Override

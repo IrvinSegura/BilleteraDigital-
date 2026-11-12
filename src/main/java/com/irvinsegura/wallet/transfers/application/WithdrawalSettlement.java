@@ -91,7 +91,7 @@ class WithdrawalSettlement {
             BankAccountInfo bankAccount = bankAccounts.getBankAccount(withdrawal.bankAccountId());
             destination = new PayoutOrder.Destination(bankAccount.clabe(), bankAccount.holderName());
         }
-        return new PayoutOrder(withdrawal.id(), withdrawal.amount(), destination);
+        return new PayoutOrder(withdrawal.id(), withdrawal.amount(), withdrawal.createdAt(), destination);
     }
 
     private WithdrawalReceipt apply(UUID withdrawalId, PayoutResult result) {
