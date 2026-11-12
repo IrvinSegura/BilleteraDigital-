@@ -1,10 +1,16 @@
 spring:
+  servlet:
+    multipart:
+      # AttachmentRules.MAX_BYTES, the largest file a support chat takes. A request holds at most an identity
+      # verification's three pictures of 8 MB each, and the rest of the form
+      max-file-size: 20MB
+      max-request-size: 26MB
   application:
     name: digital-wallet
   profiles:
     default: dev
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/wallet}
+    url: ${DB_URL:jdbc:postgresql://localhost:5440/wallet}
     username: ${DB_APP_USER:wallet_app}
     password: ${DB_APP_PASSWORD:wallet_app_dev}
     hikari:
@@ -133,6 +139,11 @@ wallet:
     # /api/v1/admin/** answers 403 ADMIN_TWO_FACTOR_REQUIRED until the administrator turns two-factor on and signs in
     # again with it
     admin-requires-two-factor: true
+    # Identity verification with a voter card (INE), reviewed by an administrator. Withdrawals need it unless
+    # IDENTITY_VERIFICATION_REQUIRED=false
+    verification:
+      required-for-withdrawals: ${IDENTITY_VERIFICATION_REQUIRED:true}
+      max-attempts-per-day: 3
     # Browser sessions (X-Session-Mode: cookie) keep the refresh token in this HttpOnly cookie. Strict SameSite means
     # the web app and the API must be on the same site, e.g. app.example.com and api.example.com
     refresh-token-cookie:
@@ -163,6 +174,10 @@ wallet:
     step-up-exempt-below:
       MXN: 1000.00
       USD: 50.00
+    # One administrator may adjust a wallet alone up to this; larger adjustments wait for a second administrator
+    adjustment-single-approval-up-to:
+      MXN: 1000.00
+      USD: 50.00
     # Retries with the same key after this are treated as new requests
     idempotency-key-cleanup:
       cron: "0 45 3 * * *"
@@ -170,10 +185,27 @@ wallet:
     # Pending withdrawals are sent again (provider down) or checked (payout on its way) by a job; the newest are
     # left alone for a while because the request that made them is still sending them
     payouts:
-      # Only simulated exists so far; it pays nothing for real, so production must ask for it explicitly
+      # simulated pays every withdrawal at once and sends no real money; stp pays MXN withdrawals by SPEI through
+      # STP and needs the stp block below (STP's demo URLs are the defaults); openpay pays them through Openpay and
+      # needs the openpay block (its sandbox, free to sign up for, is the default)
       provider: ${PAYOUT_PROVIDER:simulated}
       check-interval: 1m
       retry-after: 1m
+      stp:
+        orders-url: ${STP_ORDERS_URL:https://demo.stpmex.com:7024/speiws/rest}
+        query-url: ${STP_QUERY_URL:https://efws-dev.stpmex.com/efws/API}
+        company: ${STP_COMPANY:}
+        # The platform's 18-digit CLABE at STP, which payouts are paid from, and who it is under
+        account: ${STP_ACCOUNT:}
+        account-holder: ${STP_ACCOUNT_HOLDER:}
+        account-holder-rfc: ${STP_ACCOUNT_HOLDER_RFC:}
+        # Unencrypted PKCS#8 PEM key whose certificate STP holds; every request is signed with it
+        private-key: ${STP_PRIVATE_KEY:}
+      openpay:
+        url: ${OPENPAY_URL:https://sandbox-api.openpay.mx}
+        # Both on the Openpay dashboard (sandbox-dashboard.openpay.mx for the sandbox)
+        merchant-id: ${OPENPAY_MERCHANT_ID:}
+        private-key: ${OPENPAY_PRIVATE_KEY:}
   ledger:
     reconciliation:
       cron: "0 5 * * * *"
@@ -217,6 +249,13 @@ wallet:
     webhook-event-cleanup:
       cron: "0 50 3 * * *"
       retention: 30d
+  support:
+    # A customer who doesn't answer the agent is warned after warn-after that the case will close, and it closes
+    # close-after the warning if they still say nothing; the agent is then free for the next case
+    inactivity:
+      warn-after: 15m
+      close-after: 15m
+      check-interval: 1m
   # Failed event listeners (audit, notifications, emails) are retried with exponential backoff
   events:
     retry:
@@ -280,6 +319,19 @@ wallet:
         paths: [/api/v1/transfers, /api/v1/wallets/*/deposits, /api/v1/wallets/*/withdrawals]
         key: user
         capacity: 30
+        period: 1m
+      # A file is held in memory while it is stored, and each one ends up in the database
+      - name: support-attachments
+        methods: [POST]
+        paths: [/api/v1/support/conversation/attachments, /api/v1/support/agent/conversations/*/attachments]
+        key: user
+        capacity: 10
+        period: 1m
+      - name: support-messages
+        methods: [POST]
+        paths: [/api/v1/support/**]
+        key: user
+        capacity: 60
         period: 1m
       - name: api
         paths: [/api/**]

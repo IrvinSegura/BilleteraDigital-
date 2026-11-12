@@ -30,6 +30,9 @@ wallet:
       enabled: false
     # Tests sign in as the administrator with the password alone; AdminTwoFactorIntegrationTest turns it back on
     admin-requires-two-factor: false
+    # Withdrawal tests don't verify an identity first; IdentityVerificationIntegrationTest turns it back on
+    verification:
+      required-for-withdrawals: false
   # Emails go to the Mailpit container from TestcontainersConfiguration
   notifications:
     email:
@@ -48,6 +51,10 @@ wallet:
     step-up-exempt-below:
       MXN: 200.00
       USD: 200.00
+    # AdjustmentIntegrationTest goes over it to reach the second approval
+    adjustment-single-approval-up-to:
+      MXN: 300.00
+      USD: 300.00
   # Tests call the jobs' services directly, and every test logs in from the same address;
   # RateLimitIntegrationTest turns limiting back on with its own rules
   scheduling:
